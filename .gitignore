@@ -1,0 +1,96 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pdb
+*.egg-info/
+*.egg
+*.log
+
+# Virtual environments
+venv/
+.env
+.env.*
+env/
+ENV/
+
+# FastAPI build artifacts
+*.sqlite3
+instance/
+uploads/
+app/db/*.db
+
+# Node / React
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+dist/
+build/
+.cache/
+.eslintcache
+
+# Vite
+vite.svg
+.vite/
+
+# Flowise
+flowise_data/
+flowise_storage/
+.flowise/
+
+# Docker
+*.pid
+*.seed
+*.pid.lock
+docker-data/
+postgres_data/
+qdrant_data/
+**/docker-compose.override.yml
+
+# Logs
+logs/
+*.log
+log.txt
+
+# OS files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# VSCode
+.vscode/
+.history/
+
+# JetBrains
+.idea/
+*.iml
+
+# Python settings
+.pdm.toml
+.pytest_cache/
+.mypy_cache/
+coverage/
+.coverage*
+.cache/
+
+# Environment / secrets
+secrets/
+secret.*
+*.pem
+*.key
+*.crt
+
+# Temp
+tmp/
+temp/
+*.tmp
+
+# Backup
+*.bak
+*.old
+*.backup
