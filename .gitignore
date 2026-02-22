@@ -85,8 +85,13 @@ secret.*
 *.key
 *.crt
 
+# Google Credentials
+credentials.json
+token.json
+
 # Temp
 tmp/
+.tmp/
 temp/
 *.tmp
 
@@ -94,3 +99,12 @@ temp/
 *.bak
 *.old
 *.backup
+
+stitch_output
+agent_resources/
+.gemini/
+.agent/
+.agents/
+_agent/
+_agents/
+brain/
