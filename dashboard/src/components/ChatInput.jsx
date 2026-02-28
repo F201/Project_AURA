@@ -30,6 +30,7 @@ export default function ChatInput({ onSend, disabled }) {
     return (
         <div className="px-8 pb-6 pt-2">
             <div className="max-w-3xl mx-auto flex items-end gap-3 p-3 bg-white border border-slate-200 rounded-2xl shadow-lg shadow-black/[0.03]">
+
                 <textarea
                     ref={textareaRef}
                     value={text}

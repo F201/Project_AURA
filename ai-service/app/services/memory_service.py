@@ -23,14 +23,16 @@ class MemoryService:
         else:
             logger.warning("Supabase credentials not set. Memory service disabled.")
 
-        # Initialize embeddings model
-        api_key = settings.OPENROUTER_API_KEY or settings.OPENAI_API_KEY
+        # Initialize embeddings model via OpenRouter
+        api_key = settings.OPENROUTER_API_KEY
         if api_key:
             self.embeddings = OpenAIEmbeddings(
                 api_key=api_key,
-                model="text-embedding-3-small",
-                base_url="https://openrouter.ai/api/v1" if settings.OPENROUTER_API_KEY else None
+                model="openai/text-embedding-3-small",
+                base_url="https://openrouter.ai/api/v1"
             )
+        else:
+            logger.warning("OPENROUTER_API_KEY not set. Memory embedding disabled.")
 
     async def store(self, text: str, metadata: dict = None):
         """Embed and store a memory in Supabase pgvector."""

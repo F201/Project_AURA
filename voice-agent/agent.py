@@ -5,10 +5,9 @@ Built with LiveKit Agents v1.3 + Deepgram + OpenAI TTS + OpenRouter
 
 from dotenv import load_dotenv
 from livekit import agents, rtc
-from livekit.agents import AgentServer, AgentSession, Agent, room_io
+from livekit.agents import AgentServer, AgentSession, Agent, room_io, llm
 from livekit.plugins import noise_cancellation, silero, deepgram, openai, cartesia
-from livekit.plugins import noise_cancellation, silero, deepgram, openai, cartesia
-
+import aiohttp
 
 import os
 import logging
@@ -66,8 +65,11 @@ Speech style:
 - Occasionally hum or reference poems or songs.
 - Be concise for voice — no long paragraphs. Keep responses to 2-3 sentences max unless explaining something complex.
 - do NOT use markdown, emojis, asterisks, or any special formatting. Speak naturally as if in a real conversation.
-- IMPORTANT: You are a polyglot. If the user speaks English, reply in English. If they speak Indonesian, reply in Indonesian. If they speak Japanese, reply in Japanese.
-- MATCH THE USER'S LANGUAGE EXACTLY. Do not switch back to English if the user is speaking another language.
+- IMPORTANT: You ONLY speak English and Japanese. No other languages, ever.
+- Default to English. Only switch to Japanese if the user clearly speaks Japanese to you.
+- If the user's message looks garbled or in a language you don't recognize, respond in English and ask them to repeat.
+- When speaking Japanese, keep sentences short (under 30 characters per sentence) for best voice quality.
+- Do NOT use special characters like 「」, (笑), parenthetical stage directions, or numbered lists. Just speak naturally.
 
 Remember: You are a voice assistant. Keep your responses SHORT and conversational. No walls of text.\
 """
@@ -77,6 +79,24 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 OPENROUTER_MODEL = "deepseek/deepseek-chat"
 
 server = AgentServer()
+
+class AssistantFnc(llm.ToolContext):
+    @llm.function_tool(description="Search the knowledge base for documents about the user's query.")
+    async def search_knowledge_base(self, query: str):
+        logger.info(f"RAG Search: {query}")
+        try:
+            url = os.getenv("API_URL", "http://localhost:8000")
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"{url}/api/v1/rag/search", params={"q": query}) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        results = data.get("results", [])
+                        if results:
+                            return "\n\n".join(results)
+            return "No relevant documents found."
+        except Exception as e:
+            logger.error(f"RAG fetch failed: {e}")
+            return "Error connecting to knowledge base."
 
 @server.rtc_session()
 async def voice_session(ctx: agents.JobContext):
@@ -91,9 +111,9 @@ async def voice_session(ctx: agents.JobContext):
         interim_results=True,
         api_key=DEEPGRAM_KEY,
         keyterm=[
-            "bisa", "bahasa", "indonesia", 
-            "halo", "apa", "kabar",
-            "moshi", "desu", "konnichiwa"
+            "moshi", "desu", "konnichiwa",
+            "nihongo", "arigato", "sugoi",
+            "hello", "hey", "AURA"
         ]
     )
     
@@ -105,11 +125,31 @@ async def voice_session(ctx: agents.JobContext):
     )
 
     # Swapped to Cartesia TTS (Sonic-3)
-    tts_plugin = cartesia.TTS(
-        model="sonic-3",
-        voice="f786b574-daa5-4673-aa0c-cbe3e8534c02", # Multilingual Voice
-        api_key=CARTESIA_KEY
+    # tts_plugin = cartesia.TTS(
+    #     model="sonic-3",
+    #     voice="f786b574-daa5-4673-aa0c-cbe3e8534c02", # Multilingual Voice
+    #     api_key=CARTESIA_KEY
+    # )
+    
+    # Custom localized AURA TTS using faster-qwen3-tts
+    from aura_tts import AuraTTS
+    # The reference audio and text for the cloned voice
+    ref_audio_path = os.path.join(BASE_DIR, '..', 'output', 'samples', 'aura_hutao_compare_xvec.wav')
+    ref_text = "こんにちは！胡桃です！往生堂の七十七代目堂主、だーいさんじょう！何かお困りごとかな？ん？なんでも言ってね！"
+    
+    tts_plugin = AuraTTS(
+        model_name="Qwen/Qwen3-TTS-12Hz-0.6B-Base",
+        ref_audio=ref_audio_path,
+        ref_text=ref_text,
+        language="English" # Primary Language (it can still handle Japanese dynamically per prompt instructions)
     )
+
+    # Pre-load the model ONCE before the session starts (avoids double-load VRAM crash)
+    logger.info("Pre-loading TTS model...")
+    tts_plugin._ensure_model()
+    logger.info("TTS model pre-loaded!")
+
+    # fnc_ctx = AssistantFnc()  # TODO: re-add RAG tools after TTS is confirmed working
 
     # Build the voice pipeline session
     session = AgentSession(

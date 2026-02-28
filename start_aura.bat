@@ -38,9 +38,9 @@ echo [1/4] Starting Token Server (port 8082)...
 start "AURA Token Server" cmd /k "cd voice-agent & venv\Scripts\activate & python token_server.py"
 timeout /t 2 /nobreak >nul
 
-:: ─── 2. Voice Agent ─────────────────────────
+:: ─── 2. Voice Agent (uses aura conda env for GPU-accelerated TTS) ───
 echo [2/4] Starting Voice Agent...
-start "AURA Voice Agent" cmd /k "cd voice-agent & venv\Scripts\activate & python agent.py dev"
+start "AURA Voice Agent" cmd /k "cd voice-agent & conda activate aura & python agent.py dev"
 timeout /t 2 /nobreak >nul
 
 :: ─── 3. AI Service (direct) ──────

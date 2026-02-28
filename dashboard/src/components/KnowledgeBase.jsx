@@ -45,6 +45,18 @@ export default function KnowledgeBase() {
                 .single()
 
             if (data) setFiles((prev) => [data, ...prev])
+
+            // Also send to local RAG backend
+            try {
+                const formData = new FormData()
+                formData.append('file', file)
+                await fetch('http://localhost:8000/api/v1/rag/upload', {
+                    method: 'POST',
+                    body: formData
+                })
+            } catch (backendErr) {
+                console.warn('[AURA] Failed to send to local RAG backend:', backendErr)
+            }
         } catch (err) {
             console.error('[AURA] Upload failed:', err)
         } finally {
@@ -110,14 +122,14 @@ export default function KnowledgeBase() {
 
             {/* Upload zone */}
             <label className="border-2 border-dashed border-slate-200 rounded-xl p-8 flex flex-col items-center justify-center text-center group hover:border-primary transition-colors cursor-pointer bg-bg-light/50">
-                <input type="file" onChange={handleUpload} className="hidden" accept=".pdf,.txt,.json,.csv,.zip" />
+                <input type="file" onChange={handleUpload} className="hidden" accept=".pdf,.txt,.json,.csv,.zip,.pptx" />
                 <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
                     <span className="material-icons-round text-primary">
                         {uploading ? 'hourglass_top' : 'cloud_upload'}
                     </span>
                 </div>
                 <p className="font-bold text-sm">{uploading ? 'Uploading...' : 'Upload New Knowledge'}</p>
-                <p className="text-xs text-slate-400 mt-1">PDF, TXT, JSON, or CSV up to 50MB</p>
+                <p className="text-xs text-slate-400 mt-1">PDF, TXT, PPTX, JSON, or CSV up to 50MB</p>
             </label>
         </div>
     )

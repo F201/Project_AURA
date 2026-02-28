@@ -117,7 +117,13 @@ export default function ChatPage() {
 
             console.log('[AURA] Supabase Insert Result:', aiMsg)
 
-            if (aiMsg) setMessages((prev) => [...prev, aiMsg])
+            if (aiMsg) {
+                const localMsg = { ...aiMsg }
+                if (data.tools_used && data.tools_used.length > 0) {
+                    localMsg.tools_used = data.tools_used
+                }
+                setMessages((prev) => [...prev, localMsg])
+            }
 
             // Update conversation title + timestamp
             if (messages.length === 0) {

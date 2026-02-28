@@ -12,6 +12,7 @@ from livekit.api import AccessToken, VideoGrants
 from dotenv import load_dotenv
 import os
 import json
+import time
 
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
@@ -27,7 +28,9 @@ class TokenHandler(BaseHTTPRequestHandler):
 
         if parsed.path == "/getToken":
             params = parse_qs(parsed.query)
-            room = params.get("room", ["aura-voice-room"])[0]
+            room = params.get("room", [None])[0]
+            if not room:
+                room = f"aura-room-{int(time.time())}"
             identity = params.get("identity", ["aura-user"])[0]
 
             token = (
