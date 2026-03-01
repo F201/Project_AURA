@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from app.models.chat import ChatRequest, ChatResponse
-from app.services.brain.graph import brain_app
+from app.services.brain.graph import brain
 from langchain_core.messages import HumanMessage, AIMessage
 
 router = APIRouter()
@@ -21,7 +21,8 @@ async def chat(request: ChatRequest):
     # Run Graph
     try:
         initial_state = {"messages": history, "emotion": "neutral"}
-        result = await brain_app.ainvoke(initial_state)
+        config = {"configurable": {"thread_id": request.session_id or "default"}}
+        result = brain.invoke(initial_state, config=config)
         
         # Extract response
         last_msg = result["messages"][-1].content
@@ -36,7 +37,6 @@ async def chat(request: ChatRequest):
                         "name": tc.get("name"),
                         "args": tc.get("args", {})
                     })
-        
         # Clean tags
         text = last_msg
         if text.startswith("["):
@@ -53,5 +53,4 @@ async def chat(request: ChatRequest):
     except Exception as e:
         return ChatResponse(
              text=f"Brain Freeze: {str(e)}",
-             emotion="dizzy"
         )
