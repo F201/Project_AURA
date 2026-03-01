@@ -6,6 +6,14 @@ echo I     Zero-Docker Architecture         I
 echo +--------------------------------------+
 echo.
 
+:: ─── Cleanup Existing Services ──────────────
+echo Cleaning up existing AURA services...
+taskkill /F /FI "WINDOWTITLE eq AURA Token Server" /T >nul 2>&1
+taskkill /F /FI "WINDOWTITLE eq AURA Voice Agent" /T >nul 2>&1
+taskkill /F /FI "WINDOWTITLE eq AURA AI Service" /T >nul 2>&1
+taskkill /F /FI "WINDOWTITLE eq AURA Dashboard" /T >nul 2>&1
+timeout /t 1 /nobreak >nul
+
 :: ─── 0. Setup Virtual Environments ──────────
 echo [0/4] Checking environments...
 
@@ -40,6 +48,15 @@ timeout /t 2 /nobreak >nul
 
 :: ─── 2. Voice Agent (uses aura conda env for GPU-accelerated TTS) ───
 echo [2/4] Starting Voice Agent...
+:: Check if aura conda environment exists
+call conda env list | findstr /R "\<aura\>" >nul
+if %errorlevel% neq 0 (
+    echo [ERROR] Conda environment 'aura' not found!
+    echo Please run: conda env create -f voice-agent\environment.yml
+    echo.
+    pause
+    exit /b 1
+)
 start "AURA Voice Agent" cmd /k "cd voice-agent & conda activate aura & python agent.py dev"
 timeout /t 2 /nobreak >nul
 
@@ -50,7 +67,7 @@ timeout /t 2 /nobreak >nul
 
 :: ─── 4. Dashboard ───────────────────────────
 echo [4/4] Starting Dashboard (port 5173)...
-start "AURA Dashboard" cmd /k "cd dashboard & npm run dev"
+start "AURA Dashboard" cmd /k "cd dashboard & npm run dev -- --host"
 timeout /t 5 /nobreak >nul
 
 :: ─── Open browser ───────────────────────────

@@ -22,5 +22,39 @@ python token_server.py
 python agent.py dev
 ```
 
+## Local TTS Engine (Qwen3)
+This service now defaults to a high-performance local TTS engine based on **Qwen3-TTS**.
+
+### Setup (Conda - Recommended)
+To run the local TTS with GPU acceleration:
+```bash
+# Create the environment from the provided file
+conda env create -f environment.yml
+
+# Activate the environment
+conda activate aura
+```
+
+### Setup (Pip / Venv)
+If you prefer standard venv:
+```bash
+python -m venv venv
+call venv\Scripts\activate
+pip install -r requirements.txt
+# Note: You may need to manually install the matching torch+cu121 wheel for GPU support.
+```
+
 ## Docker
-The `voice-agent` is optimized with a "Slim Image" strategy. It loads required models into a shared volume at runtime rather than pre-downloading them during build to save disk space and improve build times.
+The `voice-agent` uses a CUDA-enabled PyTorch runtime.
+- **Base Image**: `pytorch/pytorch:2.2.1-cuda12.1-cudnn8-runtime`
+- **GPU Support**: Ensure the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) is installed on your host.
+- **Model Caching**: Models are downloaded to a shared `huggingface_cache` volume to avoid re-downloading on container restarts.
+
+## Running
+```bash
+# Start the Token Server (Port 8082)
+python token_server.py
+
+# Start the Agent Worker
+python agent.py dev
+```

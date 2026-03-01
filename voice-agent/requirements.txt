@@ -6,3 +6,13 @@ livekit-plugins-cartesia~=1.0
 livekit-plugins-openai~=1.0
 livekit-api>=1.0.7
 python-dotenv
+
+# Qwen3 TTS Engine Dependencies
+qwen-tts>=0.1.1
+transformers>=4.48.0
+torch>=2.1.0
+numpy
+soundfile
+librosa
+huggingface-hub
+accelerate

@@ -18,7 +18,7 @@ import sys
 import os
 import torch
 
-_repo_path = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', 'scripts', 'experimental', 'faster-qwen3-tts'))
+_repo_path = os.path.normpath(os.path.join(os.path.dirname(__file__), 'lib', 'faster-qwen3-tts'))
 if _repo_path not in sys.path:
     sys.path.insert(0, _repo_path)
 from faster_qwen3_tts.model import FasterQwen3TTS
