@@ -130,14 +130,15 @@ async def voice_session(ctx: agents.JobContext):
     if tts_type == "qwen":
         # Custom localized AURA TTS using faster-qwen3-tts
         from aura_tts import AuraTTS
-        # The reference audio and text for the cloned voice
-        ref_audio_path = os.path.join(BASE_DIR, 'resources', 'voice', 'aura_voice_xvec.wav')
-        ref_text = "こんにちは！AURAです！AIアシスタント、だーいさんじょう！何かお困りごとかな？ん？なんでも言ってね！"
+        
+        # Using a PRE-BAKED voice prompt (.pt) for better performance and privacy
+        # This replaces the need for a raw .wav reference file.
+        ref_prompt_path = os.path.join(BASE_DIR, 'resources', 'voice', 'aura_voice_xvec.pt')
         
         tts_plugin = AuraTTS(
             model_name="Qwen/Qwen3-TTS-12Hz-0.6B-Base",
-            ref_audio=ref_audio_path,
-            ref_text=ref_text,
+            ref_audio=ref_prompt_path, # AuraTTS/FasterQwen3 now handles .pt files
+            ref_text="",               # Pre-baked prompts don't need reference text
             language="English" 
         )
         

@@ -207,6 +207,15 @@ class FasterQwen3TTS:
         cache_key = (str(ref_audio), ref_text, xvec_only, append_silence)
         if cache_key in self._voice_prompt_cache:
             vcp, ref_ids = self._voice_prompt_cache[cache_key]
+        elif str(ref_audio).endswith(".pt"):
+            # Load pre-baked prompt from .pt file
+            prompt_items = torch.load(ref_audio, map_location=self.device)
+            vcp = self.model._prompt_items_to_voice_clone_prompt(prompt_items)
+            
+            # For .pt files, we assume ref_ids are not provided/needed if in xvec mode 
+            # (official implementation handles this via the vcp)
+            ref_ids = [None] * len(input_ids)
+            self._voice_prompt_cache[cache_key] = (vcp, ref_ids)
         elif xvec_only:
             prompt_items = self.model.create_voice_clone_prompt(
                 ref_audio=str(ref_audio),
