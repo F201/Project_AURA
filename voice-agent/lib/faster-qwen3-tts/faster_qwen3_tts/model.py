@@ -209,7 +209,8 @@ class FasterQwen3TTS:
             vcp, ref_ids = self._voice_prompt_cache[cache_key]
         elif str(ref_audio).endswith(".pt"):
             # Load pre-baked prompt from .pt file
-            prompt_items = torch.load(ref_audio, map_location=self.device)
+            # Note: weights_only=False is required for PyTorch 2.6+ to load custom qwen_tts classes
+            prompt_items = torch.load(ref_audio, map_location=self.device, weights_only=False)
             vcp = self.model._prompt_items_to_voice_clone_prompt(prompt_items)
             
             # For .pt files, we assume ref_ids are not provided/needed if in xvec mode 
