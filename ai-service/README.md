@@ -15,7 +15,15 @@ This service acts as the brain for AURA, managing long-term memory, personality 
 - `app/system/`: Lower-level orchestration (Audio pipeline, Emotion mapper).
 
 ## Development
-To run this service independently (requires `.env`):
+
+### Native (Zero-Docker)
+Use the root launcher to start all services together:
+```bash
+./start_aura.bat
+```
+
+### Docker
+To run this service independently:
 ```bash
 docker compose up ai-service
 ```

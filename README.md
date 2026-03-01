@@ -6,6 +6,7 @@
 
 ### Conversational Core
 - **Multi-modal Interaction**: Supports both text-based chat and low-latency voice interaction.
+- **Local AI Edge**: Capable of running high-performance TTS (Qwen3) entirely locally on consumer GPUs.
 - **Polyglot Intelligence**: Automatically detects and responds in English, Indonesian, and Japanese.
 - **RAG Memory**: Integrated with Supabase (pgvector) to remember past conversations and lab-specific knowledge.
 - **LiveKit Integration**: Uses LiveKit Agents for high-performance audio streaming and VAD (Voice Activity Detection).
@@ -16,11 +17,11 @@
 ## 🛠️ Tech Stack
 
 - **Orchestration**: Python, FastAPI, LangGraph.
-- **Voice Stack**: LiveKit, Deepgram (STT), Cartesia (TTS).
+- **Voice Stack**: LiveKit, Deepgram (STT), Qwen3-TTS (Local) / Cartesia (Cloud).
 - **LLM**: OpenRouter (Unified API for DeepSeek, GPT-4, etc.).
 - **Database**: Supabase (PostgreSQL + pgvector).
 - **Frontend**: React, Vite, TailwindCSS.
-- **Deployment**: Docker & Docker Compose.
+- **Deployment**: Windows Launcher (Native) & Docker / Docker Compose.
 
 ## ⚡ Quick Start
 
@@ -40,17 +41,23 @@
    ```bash
    cp .env.example .env
    ```
-   *Note: See `.env.example` for details on where to get keys for OpenRouter, Deepgram, Cartesia, and Supabase.*
+   *Note: Set `TTS_TYPE=qwen` for local or `cartesia` for cloud.*
 
-3. **Run with Docker**:
-   ```bash
-   docker compose up --build -d
+3. **Run the Launcher (Windows Recommended)**:
+   ```powershell
+   ./start_aura.bat
    ```
+   *This will handle environment checks and start all services (Dashboard, AI Service, Voice Agent, Token Server).*
 
-4. **Access the Services**:
-   - **User Dashboard**: [http://localhost:5173](http://localhost:5173)
-   - **AI Service Docs**: [http://localhost:8000/docs](http://localhost:8000/docs)
-   - **Voice Token Server**: [http://localhost:8082](http://localhost:8082)
+### Alternative: Docker Setup
+```bash
+docker compose up --build -d
+```
+
+## 🌐 Accessing Services
+- **User Dashboard**: [http://localhost:5173](http://localhost:5173)
+- **AI Service Docs**: [http://localhost:8000/docs](http://localhost:8000/docs)
+- **Voice Agent**: Integrates automatically with the Dashbord.
 
 ## 🤝 Contribution
 

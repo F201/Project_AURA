@@ -6,7 +6,7 @@ import ChatFeed from '../components/ChatFeed'
 import ChatInput from '../components/ChatInput'
 import CallOverlay from '../components/CallOverlay'
 
-const AI_SERVICE = 'http://localhost:8000/api/v1'
+const AI_SERVICE = `http://${window.location.hostname}:8000/api/v1`
 
 export default function ChatPage() {
     const [conversations, setConversations] = useState([])

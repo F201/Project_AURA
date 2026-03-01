@@ -107,3 +107,8 @@ agent_resources/
 _agent/
 _agents/
 brain/
+/output
+/scripts/experimental
+/scripts/reference_audio
+/scripts
+*.pptx

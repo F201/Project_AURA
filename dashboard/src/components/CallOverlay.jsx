@@ -16,7 +16,7 @@ export default function CallOverlay({ onClose }) {
                 const { Room, RoomEvent, Track } = await import('livekit-client')
 
                 // Fetch token from token server
-                const res = await fetch('http://localhost:8082/getToken')
+                const res = await fetch(`http://${window.location.hostname}:8082/getToken`)
                 if (!res.ok) throw new Error(`Token server error: ${res.status}`)
                 const { token, url } = await res.json()
 
