@@ -134,8 +134,8 @@ async def voice_session(ctx: agents.JobContext):
     # Custom localized AURA TTS using faster-qwen3-tts
     from aura_tts import AuraTTS
     # The reference audio and text for the cloned voice
-    ref_audio_path = os.path.join(BASE_DIR, '..', 'output', 'samples', 'aura_hutao_compare_xvec.wav')
-    ref_text = "こんにちは！胡桃です！往生堂の七十七代目堂主、だーいさんじょう！何かお困りごとかな？ん？なんでも言ってね！"
+    ref_audio_path = os.path.join(BASE_DIR, '..', 'output', 'samples', 'aura_voice_xvec.wav')
+    ref_text = "こんにちは！AURAです！AIアシスタント、だーいさんじょう！何かお困りごとかな？ん？なんでも言ってね！"
     
     tts_plugin = AuraTTS(
         model_name="Qwen/Qwen3-TTS-12Hz-0.6B-Base",
