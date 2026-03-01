@@ -67,7 +67,7 @@ if /I "%TTS_TYPE%"=="qwen" (
     )
     start "AURA Voice Agent" cmd /k "cd voice-agent & conda activate aura & python agent.py dev"
 ) else (
-    echo Detect TTS_TYPE=%TTS_TYPE% (Cloud). Using standard venv...
+    echo Detect TTS_TYPE=%TTS_TYPE% ^(Cloud^). Using standard venv...
     start "AURA Voice Agent" cmd /k "cd voice-agent & venv\Scripts\activate & python agent.py dev"
 )
 timeout /t 2 /nobreak >nul
