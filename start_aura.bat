@@ -46,18 +46,30 @@ echo [1/4] Starting Token Server (port 8082)...
 start "AURA Token Server" cmd /k "cd voice-agent & venv\Scripts\activate & python token_server.py"
 timeout /t 2 /nobreak >nul
 
-:: ─── 2. Voice Agent (uses aura conda env for GPU-accelerated TTS) ───
+:: ─── 2. Voice Agent (handles local Qwen or Cloud TTS) ───
 echo [2/4] Starting Voice Agent...
-:: Check if aura conda environment exists
-call conda env list | findstr /R "\<aura\>" >nul
-if %errorlevel% neq 0 (
-    echo [ERROR] Conda environment 'aura' not found!
-    echo Please run: conda env create -f voice-agent\environment.yml
-    echo.
-    pause
-    exit /b 1
+
+:: Parse TTS_TYPE from .env
+set "TTS_TYPE=qwen"
+for /f "tokens=2 delims==" %%a in ('findstr /I "^TTS_TYPE=" ".env"') do set "TTS_TYPE=%%a"
+
+if /I "%TTS_TYPE%"=="qwen" (
+    echo Detect TTS_TYPE=qwen. Verifying 'aura' conda environment...
+    call conda env list | findstr /R "\<aura\>" >nul
+    if %errorlevel% neq 0 (
+        echo [ERROR] Conda environment 'aura' not found!
+        echo Since you have TTS_TYPE=qwen, this environment is REQUIRED for GPU acceleration.
+        echo Please run: conda env create -f voice-agent\environment.yml
+        echo Or change TTS_TYPE=cartesia in .env to use cloud TTS.
+        echo.
+        pause
+        exit /b 1
+    )
+    start "AURA Voice Agent" cmd /k "cd voice-agent & conda activate aura & python agent.py dev"
+) else (
+    echo Detect TTS_TYPE=%TTS_TYPE% (Cloud). Using standard venv...
+    start "AURA Voice Agent" cmd /k "cd voice-agent & venv\Scripts\activate & python agent.py dev"
 )
-start "AURA Voice Agent" cmd /k "cd voice-agent & conda activate aura & python agent.py dev"
 timeout /t 2 /nobreak >nul
 
 :: ─── 3. AI Service (direct) ──────

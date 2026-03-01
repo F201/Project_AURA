@@ -22,39 +22,35 @@ python token_server.py
 python agent.py dev
 ```
 
-## Local TTS Engine (Qwen3)
-This service now defaults to a high-performance local TTS engine based on **Qwen3-TTS**.
-
-### Setup (Conda - Recommended)
-To run the local TTS with GPU acceleration:
+## TTS Configuration
+You can switch between local and cloud TTS providers in the root `.env` file:
 ```bash
-# Create the environment from the provided file
-conda env create -f environment.yml
-
-# Activate the environment
-conda activate aura
+# Options: 'qwen' (local, high-perf), 'cartesia' (cloud), 'openai' (cloud)
+TTS_TYPE=qwen
 ```
 
-### Setup (Pip / Venv)
-If you prefer standard venv:
-```bash
-python -m venv venv
-call venv\Scripts\activate
-pip install -r requirements.txt
-# Note: You may need to manually install the matching torch+cu121 wheel for GPU support.
-```
+### 1. Local TTS Engine (Qwen3)
+**Best for**: Latency and privacy. Requires a GPU (6GB+ VRAM recommended).
+- **Environment**: Use the `aura` Conda environment.
+- **Setup**: `conda env create -f environment.yml`
 
-## Docker
-The `voice-agent` uses a CUDA-enabled PyTorch runtime.
-- **Base Image**: `pytorch/pytorch:2.2.1-cuda12.1-cudnn8-runtime`
-- **GPU Support**: Ensure the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) is installed on your host.
-- **Model Caching**: Models are downloaded to a shared `huggingface_cache` volume to avoid re-downloading on container restarts.
+### 2. Cloud TTS (Cartesia / OpenAI)
+**Best for**: Low local resource usage.
+- **Environment**: Use the standard `venv` or the `aura` environment.
+- **Requirements**: Valid `CARTESIA_API_KEY` or `OPENAI_API_KEY` in `.env`.
 
 ## Running
-```bash
-# Start the Token Server (Port 8082)
-python token_server.py
+Depending on your `TTS_TYPE`, ensure you activate the correct environment:
 
-# Start the Agent Worker
+### Using local Qwen3 TTS:
+```bash
+conda activate aura
+python agent.py dev
+```
+
+### Using Cloud TTS:
+```bash
+# Standard venv is sufficient for cloud-only
+call venv\Scripts\activate
 python agent.py dev
 ```

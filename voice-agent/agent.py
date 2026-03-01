@@ -124,30 +124,39 @@ async def voice_session(ctx: agents.JobContext):
         api_key=OPENROUTER_KEY,
     )
 
-    # Swapped to Cartesia TTS (Sonic-3)
-    # tts_plugin = cartesia.TTS(
-    #     model="sonic-3",
-    #     voice="f786b574-daa5-4673-aa0c-cbe3e8534c02", # Multilingual Voice
-    #     api_key=CARTESIA_KEY
-    # )
+    # --- TTS Plugin Selection ---
+    tts_type = os.getenv("TTS_TYPE", "qwen").lower()
     
-    # Custom localized AURA TTS using faster-qwen3-tts
-    from aura_tts import AuraTTS
-    # The reference audio and text for the cloned voice
-    ref_audio_path = os.path.join(BASE_DIR, '..', 'output', 'samples', 'aura_voice_xvec.wav')
-    ref_text = "こんにちは！AURAです！AIアシスタント、だーいさんじょう！何かお困りごとかな？ん？なんでも言ってね！"
-    
-    tts_plugin = AuraTTS(
-        model_name="Qwen/Qwen3-TTS-12Hz-0.6B-Base",
-        ref_audio=ref_audio_path,
-        ref_text=ref_text,
-        language="English" # Primary Language (it can still handle Japanese dynamically per prompt instructions)
-    )
+    if tts_type == "qwen":
+        # Custom localized AURA TTS using faster-qwen3-tts
+        from aura_tts import AuraTTS
+        # The reference audio and text for the cloned voice
+        ref_audio_path = os.path.join(BASE_DIR, '..', 'output', 'samples', 'aura_voice_xvec.wav')
+        ref_text = "こんにちは！AURAです！AIアシスタント、だーいさんじょう！何かお困りごとかな？ん？なんでも言ってね！"
+        
+        tts_plugin = AuraTTS(
+            model_name="Qwen/Qwen3-TTS-12Hz-0.6B-Base",
+            ref_audio=ref_audio_path,
+            ref_text=ref_text,
+            language="English" 
+        )
+        
+        # Pre-load the model ONCE before the session starts
+        logger.info("Pre-loading local Qwen3 TTS model...")
+        tts_plugin._ensure_model()
+        logger.info("Local TTS model pre-loaded!")
 
-    # Pre-load the model ONCE before the session starts (avoids double-load VRAM crash)
-    logger.info("Pre-loading TTS model...")
-    tts_plugin._ensure_model()
-    logger.info("TTS model pre-loaded!")
+    elif tts_type == "cartesia":
+        logger.info("Using Cartesia Cloud TTS (Sonic-3)")
+        tts_plugin = cartesia.TTS(
+            model="sonic-3",
+            voice="f786b574-daa5-4673-aa0c-cbe3e8534c02", # Multilingual Voice
+            api_key=CARTESIA_KEY
+        )
+    
+    else:
+        logger.info("Using OpenAI Cloud TTS (gpt-4o compatible)")
+        tts_plugin = openai.TTS()
 
     # fnc_ctx = AssistantFnc()  # TODO: re-add RAG tools after TTS is confirmed working
 
