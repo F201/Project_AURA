@@ -1,13 +1,12 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from app.models.chat import ChatRequest, ChatResponse
 from app.services.brain.graph import brain
 from langchain_core.messages import HumanMessage, AIMessage
 
-router = APIRouter(prefix="/chat")
+router = APIRouter()
 
 @router.post("", response_model=ChatResponse)
 async def chat(request: ChatRequest):
-    
     # Convert history dicts to LangChain messages
     history = []
     for msg in request.history or []:
@@ -29,6 +28,15 @@ async def chat(request: ChatRequest):
         last_msg = result["messages"][-1].content
         emotion = result.get("emotion", "neutral")
         
+        # Look for tool calls in the last turn
+        tools_used = []
+        for msg in result["messages"]:
+            if hasattr(msg, "tool_calls") and msg.tool_calls:
+                for tc in msg.tool_calls:
+                    tools_used.append({
+                        "name": tc.get("name"),
+                        "args": tc.get("args", {})
+                    })
         # Clean tags
         text = last_msg
         if text.startswith("["):
@@ -37,15 +45,12 @@ async def chat(request: ChatRequest):
              if match:
                  text = text[match.end():].strip()
 
-        # Return response
         return ChatResponse(
             text=text,
-            emotion=emotion
+            emotion=emotion,
+            tools_used=tools_used if tools_used else None
         )
-    
     except Exception as e:
         return ChatResponse(
              text=f"Brain Freeze: {str(e)}",
-             emotion="dizzy"
         )
-

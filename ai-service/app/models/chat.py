@@ -8,3 +8,4 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     text: str
     emotion: str
+    tools_used: list[dict] | None = None

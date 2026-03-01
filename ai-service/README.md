@@ -1,18 +1,30 @@
 # AURA AI Service
 
-This service contains all backend logic for AURA:
-- LLM interactions
-- Persona processing
-- RAG (Flowise)
-- STT & TTS pipelines
-- Avatar & emotion control
-- System orchestration
+This service acts as the brain for AURA, managing long-term memory, personality orchestration, and API routing.
 
-## Key Folders
-See /docs/backend/file-map.md for a full breakdown.
+## Features
+- **LangGraph Orchestration**: Processes input through a graph-based state machine for complex decision making.
+- **Supabase (PGVector) Memory**: Handles semantic search and long-term conversation storage.
+- **FastAPI Backend**: Provides high-performance endpoints for the dashboard and external integrations.
 
-## Running Locally
-docker compose up
+## Folder Structure
+- `app/api/`: Versioned API endpoints.
+- `app/core/`: Configuration, logging, and security.
+- `app/models/`: Pydantic schemas and database models.
+- `app/services/`: Core logic (LLM, Persona, Memory, VAD).
+- `app/system/`: Lower-level orchestration (Audio pipeline, Emotion mapper).
 
-API Available at:
-http://localhost:8000/docs
+## Development
+
+### Native (Zero-Docker)
+Use the root launcher to start all services together:
+```bash
+./start_aura.bat
+```
+
+### Docker
+To run this service independently:
+```bash
+docker compose up ai-service
+```
+API Documentation: [http://localhost:8000/docs](http://localhost:8000/docs)

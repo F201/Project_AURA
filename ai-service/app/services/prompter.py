@@ -3,14 +3,13 @@ from app.services.persona import persona_engine
 
 class Prompter:
     def __init__(self):
-        self.system_prompt = """
-                                You are AURA (Advanced Universal Responsive Avatar), the spirited AI steward of the ASE Lab.
+        self.system_prompt = """You are AURA (Advanced Universal Responsive Avatar), the spirited AI steward of the ASE Lab.
 
-                                {persona}
+{persona}
 
-                                **Context:**
-                                - Current Time: {current_time}
-                            """
+**Context:**
+- Current Time: {current_time}
+"""
 
     def build(self, message: str, context: dict = None) -> list:
         """
@@ -39,4 +38,3 @@ class Prompter:
         return messages
 
 prompter = Prompter()
-
