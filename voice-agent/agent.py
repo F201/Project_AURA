@@ -186,9 +186,8 @@ async def voice_session(ctx: agents.JobContext):
     # Greet the user
     await session.generate_reply(
         instructions=(
-            "Greet the user with a playful AURA introduction. "
-            "Say 'Boo!' then greet briefly in English, Indonesian, and Japanese. "
-            "Example: 'Boo! Did I scare you? Hello! Halo! Konnichiwa! I'm AURA!'"
+            "Greet the user with a polite and helpful AURA introduction. "
+            "Example: 'Hello! I'm AURA, your personal AI assistant. How can I help you today?'"
         )
     )
 
