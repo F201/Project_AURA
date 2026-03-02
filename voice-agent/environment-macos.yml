@@ -1,0 +1,28 @@
+name: aura
+channels:
+  - pytorch
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - pytorch
+  - torchvision
+  - torchaudio
+  - pip
+  - pip:
+      - qwen-tts>=0.1.1
+      - transformers>=4.48.0
+      - huggingface-hub
+      - accelerate
+      - soundfile
+      - librosa
+      - numpy
+      - python-dotenv
+      # Loosened LiveKit constraints to fix pip resolution
+      - livekit-agents[silero,turn-detector]
+      - livekit-plugins-noise-cancellation
+      - livekit-plugins-deepgram
+      - livekit-plugins-cartesia
+      - livekit-plugins-openai
+      - livekit-api
+      - -e ./lib/faster-qwen3-tts
