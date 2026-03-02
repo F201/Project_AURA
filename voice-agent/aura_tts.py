@@ -86,6 +86,22 @@ class AuraTTS(tts.TTS):
             )
             logger.info("FasterQwen3TTS loaded and ready!")
 
+    def warmup(self):
+        """Run a short dummy generation to trigger CUDA graph capture at boot."""
+        self._ensure_model()
+        logger.info("Warming up TTS with dummy generation...")
+        with self._gen_lock:
+            for _ in self._model.generate_voice_clone_streaming(
+                text="Hello.",
+                ref_audio=self._opts.ref_audio,
+                ref_text=self._opts.ref_text,
+                language=self._opts.language,
+                chunk_size=12,
+                non_streaming_mode=False,
+            ):
+                pass
+        logger.info("TTS warmup complete — CUDA graphs ready!")
+
     def _generate_audio(self, text: str) -> bytes:
         """Non-streaming fallback: generate full audio for a text string."""
         with self._gen_lock:

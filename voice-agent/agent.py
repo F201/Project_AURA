@@ -78,6 +78,33 @@ Remember: You are a voice assistant. Keep your responses SHORT and conversationa
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 OPENROUTER_MODEL = "deepseek/deepseek-chat"
 
+# ─── TTS Plugin (module-level singleton — survives across sessions) ──
+tts_type = os.getenv("TTS_TYPE", "qwen").lower()
+
+if tts_type == "qwen":
+    from aura_tts import AuraTTS
+    ref_prompt_path = os.path.join(BASE_DIR, 'resources', 'voice', 'aura_voice_xvec.pt')
+    TTS_PLUGIN = AuraTTS(
+        model_name="Qwen/Qwen3-TTS-12Hz-0.6B-Base",
+        ref_audio=ref_prompt_path,
+        ref_text="",
+        language="English"
+    )
+    logger.info("Pre-loading local Qwen3 TTS model + CUDA graphs...")
+    TTS_PLUGIN.warmup()
+
+elif tts_type == "cartesia":
+    logger.info("Using Cartesia Cloud TTS (Sonic-3)")
+    TTS_PLUGIN = cartesia.TTS(
+        model="sonic-3",
+        voice="f786b574-daa5-4673-aa0c-cbe3e8534c02",
+        api_key=CARTESIA_KEY
+    )
+
+else:
+    logger.info("Using OpenAI Cloud TTS (gpt-4o compatible)")
+    TTS_PLUGIN = openai.TTS()
+
 server = AgentServer()
 
 class AssistantFnc(llm.ToolContext):
@@ -117,45 +144,11 @@ async def voice_session(ctx: agents.JobContext):
         ]
     )
     
-    # Use OpenAI plugin but point to OpenRouter
     llm_plugin = openai.LLM(
         model=os.getenv("OPENROUTER_MODEL", OPENROUTER_MODEL),
         base_url=OPENROUTER_BASE_URL,
         api_key=OPENROUTER_KEY,
     )
-
-    # --- TTS Plugin Selection ---
-    tts_type = os.getenv("TTS_TYPE", "qwen").lower()
-    
-    if tts_type == "qwen":
-        # Custom localized AURA TTS using faster-qwen3-tts
-        from aura_tts import AuraTTS
-        
-        ref_prompt_path = os.path.join(BASE_DIR, 'resources', 'voice', 'aura_voice_xvec.pt')
-        
-        tts_plugin = AuraTTS(
-            model_name="Qwen/Qwen3-TTS-12Hz-0.6B-Base",
-            ref_audio=ref_prompt_path,
-            ref_text="",
-            language="English" 
-        )
-        
-        # Pre-load the model ONCE before the session starts
-        logger.info("Pre-loading local Qwen3 TTS model...")
-        tts_plugin._ensure_model()
-        logger.info("Local TTS model pre-loaded!")
-
-    elif tts_type == "cartesia":
-        logger.info("Using Cartesia Cloud TTS (Sonic-3)")
-        tts_plugin = cartesia.TTS(
-            model="sonic-3",
-            voice="f786b574-daa5-4673-aa0c-cbe3e8534c02", # Multilingual Voice
-            api_key=CARTESIA_KEY
-        )
-    
-    else:
-        logger.info("Using OpenAI Cloud TTS (gpt-4o compatible)")
-        tts_plugin = openai.TTS()
 
     # fnc_ctx = AssistantFnc()  # TODO: re-add RAG tools after TTS is confirmed working
 
@@ -163,7 +156,7 @@ async def voice_session(ctx: agents.JobContext):
     session = AgentSession(
         stt=stt_plugin,
         llm=llm_plugin,
-        tts=tts_plugin,
+        tts=TTS_PLUGIN,
         vad=silero.VAD.load(),
     )
 
