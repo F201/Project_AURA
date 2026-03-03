@@ -9,6 +9,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Optional
 import numpy as np
+from vtube_controller import VTUBE
 
 from livekit import rtc
 from livekit.agents import tts, tokenize
@@ -36,6 +37,7 @@ class _TTSOptions:
     ref_text: str
     language: str
     dtype: torch.dtype
+    max_seq_len: int
 
 
 class AuraTTS(tts.TTS):
@@ -52,6 +54,7 @@ class AuraTTS(tts.TTS):
         ref_text: str,
         language: str = "English",
         dtype: torch.dtype = torch.bfloat16,
+        max_seq_len: int = 384,  # Further reduced for 6GB GPUs (from 512)
     ):
         super().__init__(
             capabilities=tts.TTSCapabilities(streaming=True),
@@ -64,6 +67,7 @@ class AuraTTS(tts.TTS):
             ref_text=ref_text,
             language=language,
             dtype=dtype,
+            max_seq_len=max_seq_len,
         )
         self._model: Optional[FasterQwen3TTS] = None
         self._model_lock = threading.Lock()
@@ -79,24 +83,47 @@ class AuraTTS(tts.TTS):
             import gc
             gc.collect()
             torch.cuda.empty_cache()
-            logger.info(f"Loading FasterQwen3TTS: {self._opts.model_name}")
+            logger.info(f"Loading FasterQwen3TTS: {self._opts.model_name} (max_seq_len={self._opts.max_seq_len})")
             self._model = FasterQwen3TTS.from_pretrained(
                 self._opts.model_name,
                 dtype=self._opts.dtype,
+                max_seq_len=self._opts.max_seq_len,
             )
             logger.info("FasterQwen3TTS loaded and ready!")
 
+    def warmup(self):
+        """Run a short dummy generation to trigger CUDA graph capture at boot."""
+        self._ensure_model()
+        logger.info("Warming up TTS with dummy generation...")
+        with self._gen_lock:
+            self._model.generate_voice_clone(
+                text="Hello.",
+                ref_audio=self._opts.ref_audio,
+                ref_text=self._opts.ref_text,
+                language="English",
+            )
+        logger.info("TTS warmup complete — CUDA graphs ready!")
+
     def _generate_audio(self, text: str) -> bytes:
+        """Call internal generation with the default language."""
+        return self._generate_audio_with_lang(text, self._opts.language)
+
+    def _generate_audio_with_lang(self, text: str, language: str) -> bytes:
         """Generate audio for the given text and return raw PCM int16 bytes.
-        Thread-safe: serialized via _gen_lock to prevent concurrent CUDA graph captures."""
+        Thread-safe: serialized via _gen_lock to prevent concurrent GPU usage.
+        NOTE: text should already be cleaned by format_for_tts before calling this."""
+        if not text or not text.strip():
+            return b""
+            
         with self._gen_lock:
             audio_np, sample_rate = self._model.generate_voice_clone(
                 text=text,
                 ref_audio=self._opts.ref_audio,
                 ref_text=self._opts.ref_text,
-                language=self._opts.language,
+                language=language,
             )
             audio_data = audio_np[0]
+
             # Convert float32 -> int16 PCM bytes
             audio_int16 = (audio_data * 32767).clip(-32768, 32767).astype(np.int16)
             return audio_int16.tobytes()
@@ -136,6 +163,7 @@ class _AuraChunkedStream(tts.ChunkedStream):
         output_emitter.push(pcm_bytes)
 
 
+
 class _AuraSynthesizeStream(tts.SynthesizeStream):
     """Streaming: buffers LLM text into sentences, synthesizes each as one continuous audio stream."""
 
@@ -157,7 +185,12 @@ class _AuraSynthesizeStream(tts.SynthesizeStream):
         )
 
         # Buffer incoming text tokens into sentences
-        tokenizer = tokenize.basic.SentenceTokenizer()
+        # Use a custom bilingual sentence splitter that handles BOTH
+        # English (.!?) AND Japanese (。！？) punctuation.
+        tokenizer = tokenize.basic.SentenceTokenizer(
+            min_sentence_len=3,
+            # Custom delimiters: standard + Japanese full-width punctuation
+        )
         token_stream = tokenizer.stream()
 
         async def _process_input():
@@ -166,23 +199,70 @@ class _AuraSynthesizeStream(tts.SynthesizeStream):
                 if isinstance(data, self._FlushSentinel):
                     token_stream.flush()
                 else:
-                    token_stream.push_text(data)
+                    # Replace Japanese sentence-ending punctuation with ASCII equivalents
+                    # so the SentenceTokenizer can split on them properly
+                    text = data
+                    text = text.replace('。', '. ')
+                    text = text.replace('！', '! ')
+                    text = text.replace('？', '? ')
+                    token_stream.push_text(text)
             token_stream.end_input()
 
         async def _synthesize():
             """Read complete sentences from the tokenizer and synthesize."""
             async for ev in token_stream:
-                sentence = ev.token
-                if not sentence.strip():
+                raw_sentence = ev.token
+                
+                # Detect if the sentence is primarily Japanese
+                has_japanese = any('\u3040' <= char <= '\u30ff' or '\u4e00' <= char <= '\u9fff' for char in raw_sentence)
+                lang = "Japanese" if has_japanese else "English"
+
+                # Clean sentence for TTS
+                sentence = VTUBE.format_for_tts(raw_sentence)
+                
+                # SAFETY: Skip if sentence contains NO alphanumeric characters (prevents runaway loops)
+                if not any(c.isalnum() for c in sentence):
                     continue
 
-                logger.debug(f"Synthesizing: {sentence}")
+                # Generate audio and calculate duration
+                # PCM 16-bit means 2 bytes per sample
                 loop = asyncio.get_event_loop()
+                try:
+                    pcm_bytes = await loop.run_in_executor(
+                        None, self._tts_instance._generate_audio_with_lang, sentence, lang
+                    )
+                    
+                    if not pcm_bytes:
+                        continue
+                        
+                    duration = len(pcm_bytes) / (SAMPLE_RATE * NUM_CHANNELS * 2)
 
-                pcm_bytes = await loop.run_in_executor(
-                    None, self._tts_instance._generate_audio, sentence
-                )
-                output_emitter.push(pcm_bytes)
+                    # Trigger expressions per sentence
+                    # Use fire-and-forget with proper loop handling
+                    emotions = VTUBE.detect_emotion(raw_sentence)
+                    if emotions:
+                        try:
+                            await VTUBE.set_expression(emotions)
+                            # Schedule reset after audio finishes
+                            async def _reset_after(ems, dur):
+                                await asyncio.sleep(dur)
+                                try:
+                                    await VTUBE.set_expression(ems)
+                                except Exception:
+                                    pass
+                            asyncio.create_task(_reset_after(emotions, duration))
+                        except Exception as ve:
+                            logger.debug(f"VTS expression error (non-fatal): {ve}")
+
+                    output_emitter.push(pcm_bytes)
+                    logger.debug(f"Synthesized {duration:.2f}s audio for: {sentence} (Lang: {lang})")
+                    
+                except Exception as e:
+                    logger.error(f"TTS generation failed for sentence '{sentence}': {e}")
+                    import gc
+                    gc.collect()
+                    torch.cuda.empty_cache()
+
 
         # Run input processing and synthesis concurrently
         await asyncio.gather(_process_input(), _synthesize())

@@ -112,3 +112,4 @@ brain/
 /scripts/reference_audio
 /scripts
 *.pptx
+voice-agent/token.txt

@@ -14,6 +14,13 @@ services:
       - huggingface_cache:/root/.cache/huggingface
     networks:
       - aura-net
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
 
   dashboard:
     build:
@@ -46,6 +53,13 @@ services:
       - huggingface_cache:/root/.cache/huggingface
     networks:
       - aura-net
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
 
   token-server:
     build:

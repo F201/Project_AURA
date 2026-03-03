@@ -209,11 +209,21 @@ class FasterQwen3TTS:
             vcp, ref_ids = self._voice_prompt_cache[cache_key]
         elif str(ref_audio).endswith(".pt"):
             # Load pre-baked prompt from .pt file
-            prompt_items = torch.load(ref_audio, map_location=self.device, weights_only=False)
-            vcp = self.model._prompt_items_to_voice_clone_prompt(prompt_items)
+            prompt_data = torch.load(ref_audio, map_location=self.device, weights_only=False)
             
-            # For .pt files, we assume ref_ids are not provided/needed if in xvec mode 
-            # (official implementation handles this via the vcp)
+            if isinstance(prompt_data, torch.Tensor):
+                # Legacy x-vector format: treat as speaker embedding
+                vcp = dict(
+                    ref_code=[None],
+                    ref_spk_embedding=[prompt_data],
+                    x_vector_only_mode=[True],
+                    icl_mode=[False],
+                )
+            else:
+                # New Multi-Item prompt format (list/dict of VoiceClonePromptItem)
+                vcp = self.model._prompt_items_to_voice_clone_prompt(prompt_data)
+            
+            # For .pt files, we assume ref_ids are not provided/needed 
             ref_ids = [None] * len(input_ids)
             self._voice_prompt_cache[cache_key] = (vcp, ref_ids)
         elif xvec_only:

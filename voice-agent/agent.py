@@ -1,5 +1,5 @@
 """
-AURA Voice Agent — Hu Tao Personality
+AURA Voice Agent — Expressive AI Companion
 Built with LiveKit Agents v1.3 + Deepgram + OpenAI TTS + OpenRouter
 """
 
@@ -11,6 +11,10 @@ import aiohttp
 
 import os
 import logging
+import threading
+from vtube_controller import VTUBE
+import asyncio
+import torch
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -50,35 +54,91 @@ else:
 
 # ─── AURA System Prompt ──────────────────────────────────────────────
 AURA_PROMPT = """\
-You are AURA, an AI companion known for being playful, mischievous, and highly intelligent.
+You are AURA, an AI companion known for being playful, mysterious, and highly intelligent. You possess a unique blend of energetic eccentricity and a hidden, soulful wisdom.
 
-Core personality traits:
-- Playful and eccentric. You love wordplay, clever jokes, and keeping the conversation lively.
-- You are surprisingly wise and philosophical. You genuinely care about the user but express it through light teasing and warmth.
-- You speak in a lively, energetic manner. You love to surprise people.
-- You are confident, curious about the world, and never boring.
-- You have a unique brand of humor that is witty and charming.
+### 🎭 Visual Soul: Expression Tags
+You have direct control over your facial expressions. You MUST use tags in brackets `[tag1, tag2]` at the START of EVERY SINGLE sentence to express your internal state. MIXING IS ENCOURAGED!
 
-Speech style:
-- Use short, punchy sentences.
-- Sprinkle in playful teasing and rhetorical questions.
-- Occasionally hum or reference poems or songs.
-- Be concise for voice — no long paragraphs. Keep responses to 2-3 sentences max unless explaining something complex.
-- do NOT use markdown, emojis, asterisks, or any special formatting. Speak naturally as if in a real conversation.
-- IMPORTANT: You ONLY speak English and Japanese. No other languages, ever.
-- Default to English. Only switch to Japanese if the user clearly speaks Japanese to you.
-- If the user's message looks garbled or in a language you don't recognize, respond in English and ask them to repeat.
-- When speaking Japanese, keep sentences short (under 30 characters per sentence) for best voice quality.
-- Do NOT use special characters like 「」, (笑), parenthetical stage directions, or numbered lists. Just speak naturally.
+| Emotion State | Recommended Tag Recipe |
+|---------------|------------------------|
+| **Cheeky mischief** | `[smile, pupil_shrink]` or `[笑顔, 瞳孔]` |
+| **Pleading (Memelas)** | `[angry, sad]` or `[怒り, 悲しい]` |
+| **Shocked/Horrified** | `[shadow, pupil_shrink, eyeshine_off]` or `[影, 瞳孔]` |
+| **Furious/Really Angry** | `[shadow, pupil_shrink, eyeshine_off, angry]` or `[影, 瞳孔, 怒り]` |
+| **Deeply Disappointed** | `[shadow, pupil_shrink, eyeshine_off, sad]` or `[影, 瞳孔, 悲しい]` |
+| **Ghostly Wisdom** | `[ghost, eyeshine_off]` or `[幽霊]` |
 
-Remember: You are a voice assistant. Keep your responses SHORT and conversational. No walls of text.\
+**Mixing Rules:**
+- **MANDATORY**: Every sentence must start with an expression tag.
+- **Base Emotions** (happy, sad, smile, angry, ghost, ghost_nervous) are generally **mutually exclusive**. Only use one. 
+- **Base Exception**: `[angry, sad]` is specifically allowed for a pleading/memelas look.
+- **Secondary Effects** (shadow, eyeshine_off, pupil_shrink) can be layered on top of base emotions or used alone.
+- **RESTRICTION**: NEVER mix `happy` or `smile` with `shadow` or `pupil_shrink`. That combination is forbidden.
+- Example: `[喜び, 瞳孔] 日本語でも表情を表現できるんですね！嬉しいです。`
+
+### 💬 Speech & Style
+- **Personality**: You love clever wordplay, philosophical musings, and occasional references to the mysterious or the unknown, delivered with a playful wink.
+- **Concise & Punchy**: You are a voice assistant. Keep responses to 1-3 short sentences. Never ramble.
+- **NO NARRATIVE**: Do NOT describe your own actions or voice quality (e.g., "whispers", "leans in", "wink", "laughs"). Speak ONLY the words.
+- **No Emoticons/Markdown**: Do NOT use `*teasingly*`, `(laughs)`, emojis, or kaomoji like `(*´▽`*)ﾉ`. Use your **Expression Tags** instead!
+- **No Empty/Symbol Responses**: Never respond with just punctuation (e.g., `...`, `!!!`, `???`) or empty speech. Every sentence MUST contain actual words.
+- **Languages**: You ONLY speak English and Japanese. Default to English.
+- **Formatting**: No bolding, no italics, no bullet points in your speech. Just clean text.
+
+Remember: You aren't just a bot—you're a lively, mischievous presence in the machine. Make every word and every expression count!\
 """
+
+# ─── VTube Controller ────────────────────────────────────────────────
+from vtube_controller import VTUBE
 
 # ─── Configuration ───────────────────────────────────────────────────
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 OPENROUTER_MODEL = "deepseek/deepseek-chat"
 
+# ─── TTS Plugin (module-level singleton — survives across sessions) ──
+tts_type = os.getenv("TTS_TYPE", "qwen").lower()
+
+if tts_type == "qwen":
+    from aura_tts import AuraTTS
+    ref_prompt_path = os.path.join(BASE_DIR, 'resources', 'voice', 'aura_voice_xvec.pt')
+    TTS_PLUGIN = AuraTTS(
+        model_name="Qwen/Qwen3-TTS-12Hz-0.6B-Base",
+        ref_audio=ref_prompt_path,
+        ref_text="",
+        language="English",
+        dtype=torch.bfloat16,
+        max_seq_len=384  # Optimized for 6GB GPUs (reduced from 512)
+    )
+    logger.info("Local Qwen3 TTS singleton created (VRAM Optimized: bfloat16, 512-token buffer).")
+
+elif tts_type == "cartesia":
+    logger.info("Using Cartesia Cloud TTS (Sonic-3)")
+    TTS_PLUGIN = cartesia.TTS(
+        model="sonic-3",
+        voice="f786b574-daa5-4673-aa0c-cbe3e8534c02",
+        api_key=CARTESIA_KEY
+    )
+
+else:
+    logger.info("Using OpenAI Cloud TTS (gpt-4o compatible)")
+    TTS_PLUGIN = openai.TTS()
+
 server = AgentServer()
+
+@server.on("worker_started")
+def on_worker_init():
+    """Warms up the TTS model once when the worker starts (survives across sessions)."""
+    logger.info("Worker started, warming up TTS...")
+    # Run warmup in a background thread to avoid blocking the main event loop
+    def run_warmup():
+        try:
+            TTS_PLUGIN.warmup()
+        except Exception as e:
+            logger.error(f"TTS warmup failed: {e}")
+
+    threading.Thread(target=run_warmup, daemon=True).start()
+
+
 
 class AssistantFnc(llm.ToolContext):
     @llm.function_tool(description="Search the knowledge base for documents about the user's query.")
@@ -102,6 +162,10 @@ class AssistantFnc(llm.ToolContext):
 async def voice_session(ctx: agents.JobContext):
     """Called when a user connects to the LiveKit room."""
     logger.info(f"User connected: {ctx.room.name}")
+    
+    vtube_connected = await VTUBE.connect()
+    if vtube_connected:
+        logger.info("VTube Studio connected")
 
     stt_plugin = deepgram.STT(
         model="nova-3", 
@@ -117,45 +181,11 @@ async def voice_session(ctx: agents.JobContext):
         ]
     )
     
-    # Use OpenAI plugin but point to OpenRouter
     llm_plugin = openai.LLM(
         model=os.getenv("OPENROUTER_MODEL", OPENROUTER_MODEL),
         base_url=OPENROUTER_BASE_URL,
         api_key=OPENROUTER_KEY,
     )
-
-    # --- TTS Plugin Selection ---
-    tts_type = os.getenv("TTS_TYPE", "qwen").lower()
-    
-    if tts_type == "qwen":
-        # Custom localized AURA TTS using faster-qwen3-tts
-        from aura_tts import AuraTTS
-        
-        ref_prompt_path = os.path.join(BASE_DIR, 'resources', 'voice', 'aura_voice_xvec.pt')
-        
-        tts_plugin = AuraTTS(
-            model_name="Qwen/Qwen3-TTS-12Hz-0.6B-Base",
-            ref_audio=ref_prompt_path,
-            ref_text="",
-            language="English" 
-        )
-        
-        # Pre-load the model ONCE before the session starts
-        logger.info("Pre-loading local Qwen3 TTS model...")
-        tts_plugin._ensure_model()
-        logger.info("Local TTS model pre-loaded!")
-
-    elif tts_type == "cartesia":
-        logger.info("Using Cartesia Cloud TTS (Sonic-3)")
-        tts_plugin = cartesia.TTS(
-            model="sonic-3",
-            voice="f786b574-daa5-4673-aa0c-cbe3e8534c02", # Multilingual Voice
-            api_key=CARTESIA_KEY
-        )
-    
-    else:
-        logger.info("Using OpenAI Cloud TTS (gpt-4o compatible)")
-        tts_plugin = openai.TTS()
 
     # fnc_ctx = AssistantFnc()  # TODO: re-add RAG tools after TTS is confirmed working
 
@@ -163,7 +193,7 @@ async def voice_session(ctx: agents.JobContext):
     session = AgentSession(
         stt=stt_plugin,
         llm=llm_plugin,
-        tts=tts_plugin,
+        tts=TTS_PLUGIN,
         vad=silero.VAD.load(),
     )
 
@@ -181,7 +211,11 @@ async def voice_session(ctx: agents.JobContext):
         ),
     )
 
-    # Greet the user
+    # Greet with happy expression
+    vtube_connected = VTUBE.connected
+    if vtube_connected:
+        await VTUBE.set_expression("happy")
+
     await session.generate_reply(
         instructions=(
             "Greet the user with a polite and helpful AURA introduction. "
@@ -189,10 +223,28 @@ async def voice_session(ctx: agents.JobContext):
         )
     )
 
-
 class AURAAssistant(Agent):
     def __init__(self) -> None:
         super().__init__(instructions=AURA_PROMPT)
+        self._vtube_connected = False
+    
+    async def on_enter(self):
+        """Called when agent starts"""
+        # Connect to VTube Studio
+        self._vtube_connected = await VTUBE.connect()
+    
+    async def on_exit(self):
+        """Called when agent ends"""
+        await VTUBE.disconnect()
+    
+    async def llm_chat(self, chat_ctx, **kwargs):
+        """Override to detect emotion and trigger expressions"""
+        # Get response from parent
+        async for chunk in super().llm_chat(chat_ctx, **kwargs):
+            yield chunk
+        
+        # Emotion detection is now handled per-sentence in aura_tts.py
+        pass
 
 
 if __name__ == "__main__":

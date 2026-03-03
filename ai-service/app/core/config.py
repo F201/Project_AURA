@@ -6,16 +6,6 @@ from pathlib import Path
 
 logger = logging.getLogger("uvicorn")
 
-# Robust absolute path calculation
-# Current file: .../ai-service/app/core/config.py
-# .env is at:   .../Project_AURA/.env
-# We need to go up 3 levels from 'app/core' to 'ai-service', then one more to root?
-# No.
-# __file__ = .../ai-service/app/core/config.py
-# parent = .../ai-service/app/core
-# parent.parent = .../ai-service/app
-# parent.parent.parent = .../ai-service
-# parent.parent.parent.parent = .../Project_AURA
 
 CURRENT_FILE = Path(__file__).resolve()
 AI_SERVICE_DIR = CURRENT_FILE.parent.parent.parent

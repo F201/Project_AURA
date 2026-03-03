@@ -1,30 +1,31 @@
 # AURA AI Service
 
-This service acts as the brain for AURA, managing long-term memory, personality orchestration, and API routing.
+This service provides the intelligent backbone for AURA, handling document processing, Knowledge Base (RAG) search, and LLM reasoning.
 
-## Features
-- **LangGraph Orchestration**: Processes input through a graph-based state machine for complex decision making.
-- **Supabase (PGVector) Memory**: Handles semantic search and long-term conversation storage.
-- **FastAPI Backend**: Provides high-performance endpoints for the dashboard and external integrations.
+## 🚀 Overview
+The AI Service is built with **FastAPI** and uses a RAG (Retrieval-Augmented Generation) pattern to grounded AURA's responses in specific documents.
 
-## Folder Structure
-- `app/api/`: Versioned API endpoints.
-- `app/core/`: Configuration, logging, and security.
-- `app/models/`: Pydantic schemas and database models.
-- `app/services/`: Core logic (LLM, Persona, Memory, VAD).
-- `app/system/`: Lower-level orchestration (Audio pipeline, Emotion mapper).
+## 🛠 Tech Stack
+- **Framework**: FastAPI (Python 3.10+)
+- **Vector Search**: Qdrant (local or cloud)
+- **Embeddings**: Sentence-Transformers
+- **ORMs/Tools**: Pydantic, SQLAlchemy
 
-## Development
+## 📋 Capabilities
+- **Document Ingestion**: Upload `.txt`, `.pdf`, and `.pptx` documents to AURA's brain.
+- **RAG Search**: Semantic search over uploaded documents to provide context to the Voice Agent.
+- **API Endpoints**: 
+  - `GET /api/v1/rag/search`: Search the knowledge base.
+  - `POST /api/v1/rag/upload`: Ingest new documents.
 
-### Native (Zero-Docker)
-Use the root launcher to start all services together:
-```bash
-./start_aura.bat
-```
-
-### Docker
-To run this service independently:
-```bash
-docker compose up ai-service
-```
-API Documentation: [http://localhost:8000/docs](http://localhost:8000/docs)
+## ⚙️ Setup
+1. **Navigate to directory**: `cd ai-service`
+2. **Setup environment**: `python -m venv venv`
+3. **Activate environment**:
+   - Windows: `venv\Scripts\activate`
+   - Unix: `source venv/bin/activate`
+4. **Install dependencies**: `pip install -r requirements.txt`
+5. **Configure `.env`**:
+   - `OPENAPI_KEY`: Your LLM provider key.
+   - `QDRANT_URL`: URL to your vector database.
+6. **Run**: `uvicorn app.main:app --reload`
