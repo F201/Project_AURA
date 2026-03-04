@@ -1,5 +1,4 @@
 from langgraph.graph import StateGraph, END
-from langgraph.checkpoint.memory import MemorySaver
 
 from app.services.brain.state import BrainState
 from app.services.brain.nodes.emotion import detect_emotion
@@ -17,6 +16,5 @@ workflow.set_entry_point("detect_emotion")
 workflow.add_edge("detect_emotion", "generate_response")
 workflow.add_edge("generate_response", END)
 
-# Compile graph with memory saver
-memory_saver = MemorySaver()
-brain = workflow.compile(checkpointer=memory_saver)
+# Compile graph
+brain = workflow.compile()

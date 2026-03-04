@@ -82,7 +82,10 @@ class AuraTTS(tts.TTS):
                 return
             import gc
             gc.collect()
-            torch.cuda.empty_cache()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                torch.mps.empty_cache()
             logger.info(f"Loading FasterQwen3TTS: {self._opts.model_name} (max_seq_len={self._opts.max_seq_len})")
             self._model = FasterQwen3TTS.from_pretrained(
                 self._opts.model_name,
@@ -261,7 +264,10 @@ class _AuraSynthesizeStream(tts.SynthesizeStream):
                     logger.error(f"TTS generation failed for sentence '{sentence}': {e}")
                     import gc
                     gc.collect()
-                    torch.cuda.empty_cache()
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                    if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                        torch.mps.empty_cache()
 
 
         # Run input processing and synthesis concurrently
