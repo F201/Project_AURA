@@ -195,6 +195,9 @@ class _AuraSynthesizeStream(tts.SynthesizeStream):
             # Custom delimiters: standard + Japanese full-width punctuation
         )
         token_stream = tokenizer.stream()
+        
+        # Track pending reset task so we can cancel it when a new sentence starts
+        _pending_reset: Optional[asyncio.Task] = None
 
         async def _process_input():
             """Read text from the input channel and push to the tokenizer."""
@@ -213,6 +216,8 @@ class _AuraSynthesizeStream(tts.SynthesizeStream):
 
         async def _synthesize():
             """Read complete sentences from the tokenizer and synthesize."""
+            nonlocal _pending_reset
+            
             async for ev in token_stream:
                 raw_sentence = ev.token
                 
@@ -223,9 +228,17 @@ class _AuraSynthesizeStream(tts.SynthesizeStream):
                 # Clean sentence for TTS
                 sentence = VTUBE.format_for_tts(raw_sentence)
                 
+                # Strip trailing dashes and tildes that TTS speaks as "minus"
+                sentence = sentence.rstrip('-~～')
+                sentence = sentence.strip()
+                
                 # SAFETY: Skip if sentence contains NO alphanumeric characters (prevents runaway loops)
                 if not any(c.isalnum() for c in sentence):
                     continue
+
+                # Cancel any pending expression reset (new sentence overrides old reset)
+                if _pending_reset and not _pending_reset.done():
+                    _pending_reset.cancel()
 
                 # Generate audio and calculate duration
                 # PCM 16-bit means 2 bytes per sample
@@ -239,23 +252,35 @@ class _AuraSynthesizeStream(tts.SynthesizeStream):
                         continue
                         
                     duration = len(pcm_bytes) / (SAMPLE_RATE * NUM_CHANNELS * 2)
+                    
+                    # SAFETY: Cap audio at 8 seconds per sentence to prevent TTS runaway
+                    MAX_SENTENCE_DURATION = 8.0
+                    if duration > MAX_SENTENCE_DURATION:
+                        logger.warning(f"TTS generated {duration:.1f}s for '{sentence[:30]}' — truncating to {MAX_SENTENCE_DURATION}s")
+                        max_bytes = int(MAX_SENTENCE_DURATION * SAMPLE_RATE * NUM_CHANNELS * 2)
+                        pcm_bytes = pcm_bytes[:max_bytes]
+                        duration = MAX_SENTENCE_DURATION
 
                     # Trigger expressions per sentence
-                    # Use fire-and-forget with proper loop handling
+                    # Trigger expressions per sentence
                     emotions = VTUBE.detect_emotion(raw_sentence)
                     if emotions:
                         try:
-                            await VTUBE.set_expression(emotions)
-                            # Schedule reset after audio finishes
-                            async def _reset_after(ems, dur):
-                                await asyncio.sleep(dur)
-                                try:
-                                    await VTUBE.set_expression(ems)
-                                except Exception:
-                                    pass
-                            asyncio.create_task(_reset_after(emotions, duration))
+                            # Fire and forget VTube commands to avoid blocking audio stream
+                            asyncio.create_task(VTUBE.set_expression(emotions))
                         except Exception as ve:
                             logger.debug(f"VTS expression error (non-fatal): {ve}")
+                            
+                    # Always schedule reset to NEUTRAL after audio finishes + small buffer
+                    # This handles edge cases where agent.py sets an emotion independently,
+                    # or if the emotion carries over from the previous sentence implicitly
+                    async def _reset_after(dur):
+                        await asyncio.sleep(dur + 0.5) 
+                        try:
+                            await VTUBE.reset_to_neutral()
+                        except Exception:
+                            pass
+                    _pending_reset = asyncio.create_task(_reset_after(duration))
 
                     output_emitter.push(pcm_bytes)
                     logger.debug(f"Synthesized {duration:.2f}s audio for: {sentence} (Lang: {lang})")
