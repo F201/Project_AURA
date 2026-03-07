@@ -9,7 +9,7 @@ from app.services.prompter import prompter
 from app.services.memory_service import memory_service
 from langchain_core.messages import AIMessage, HumanMessage
 
-session_history_window = 20
+session_history_window = 9999
 
 def generate_response(state: BrainState) -> dict:
     with concurrent.futures.ThreadPoolExecutor() as pool:

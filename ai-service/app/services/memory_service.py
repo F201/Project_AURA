@@ -7,13 +7,11 @@ from typing import List
 from supabase import create_client
 from langchain_openai import OpenAIEmbeddings
 from app.core.config import settings
-from datetime import datetime, timedelta
 from uuid import UUID
 
 from app.models.database import (Conversation, CreateConversation, Message, CreateMesssage, Memory, CreateMemory)
 
 import logging
-import threading
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +91,7 @@ class MemoryService:
 
                 CreateMesssage(
                     conversation_id=conversation_id,
-                    role="assistant",
+                    role="aura",
                     content=assistant_text,
                     emotion=assistant_emotion
                 ).model_dump(mode="json")
