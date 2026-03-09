@@ -6,6 +6,7 @@ import asyncio
 import logging
 import threading
 import uuid
+import time
 from dataclasses import dataclass
 from typing import Optional
 import numpy as np
@@ -236,10 +237,6 @@ class _AuraSynthesizeStream(tts.SynthesizeStream):
                 if not any(c.isalnum() for c in sentence):
                     continue
 
-                # Cancel any pending expression reset (new sentence overrides old reset)
-                if _pending_reset and not _pending_reset.done():
-                    _pending_reset.cancel()
-
                 # Generate audio and calculate duration
                 # PCM 16-bit means 2 bytes per sample
                 loop = asyncio.get_event_loop()
@@ -253,34 +250,47 @@ class _AuraSynthesizeStream(tts.SynthesizeStream):
                         
                     duration = len(pcm_bytes) / (SAMPLE_RATE * NUM_CHANNELS * 2)
                     
-                    # SAFETY: Cap audio at 8 seconds per sentence to prevent TTS runaway
-                    MAX_SENTENCE_DURATION = 8.0
+                    # SAFETY: Cap audio at 15 seconds per sentence to prevent TTS runaway
+                    MAX_SENTENCE_DURATION = 15.0
                     if duration > MAX_SENTENCE_DURATION:
-                        logger.warning(f"TTS generated {duration:.1f}s for '{sentence[:30]}' — truncating to {MAX_SENTENCE_DURATION}s")
+                        logger.warning(f"TTS generated {duration:.1f}s for '{sentence[:30]}' - truncating to {MAX_SENTENCE_DURATION}s")
                         max_bytes = int(MAX_SENTENCE_DURATION * SAMPLE_RATE * NUM_CHANNELS * 2)
                         pcm_bytes = pcm_bytes[:max_bytes]
                         duration = MAX_SENTENCE_DURATION
 
-                    # Trigger expressions per sentence
-                    # Trigger expressions per sentence
+                    # Virtual Playhead syncing for TTS->VTube Expressions
+                    # LiveKit queues audio and plays it sequentially, but we generate it much faster than real-time.
+                    # If we trigger expressions immediately, they fall completely out-of-sync with the audio.
+                    now = time.time()
+                    if not hasattr(self, '_playhead') or self._playhead < now:
+                        self._playhead = now
+                        
+                    self._reset_token = getattr(self, '_reset_token', 0) + 1
+                    current_token = self._reset_token
+                        
+                    delay_until_play = self._playhead - now
+                    self._playhead += duration
+                    
                     emotions = VTUBE.detect_emotion(raw_sentence)
-                    if emotions:
+                    
+                    async def _sync_expression(em_list, delay_start, dur, token):
                         try:
-                            # Fire and forget VTube commands to avoid blocking audio stream
-                            asyncio.create_task(VTUBE.set_expression(emotions))
-                        except Exception as ve:
-                            logger.debug(f"VTS expression error (non-fatal): {ve}")
+                            if delay_start > 0:
+                                await asyncio.sleep(delay_start)
+                                
+                            if em_list:
+                                await VTUBE.set_expression(em_list)
+                                
+                            await asyncio.sleep(dur + 0.3)  # grace period after audio
                             
-                    # Always schedule reset to NEUTRAL after audio finishes + small buffer
-                    # This handles edge cases where agent.py sets an emotion independently,
-                    # or if the emotion carries over from the previous sentence implicitly
-                    async def _reset_after(dur):
-                        await asyncio.sleep(dur + 0.5) 
-                        try:
-                            await VTUBE.reset_to_neutral()
-                        except Exception:
-                            pass
-                    _pending_reset = asyncio.create_task(_reset_after(duration))
+                            # Only clear to neutral if we are STILL the very last scheduled sentence
+                            if getattr(self, '_reset_token', -1) == token:
+                                await VTUBE.reset_to_neutral()
+                        except Exception as e:
+                            logger.debug(f"VTS sync error (non-fatal): {e}")
+
+                    # Trigger emotions perfectly sequenced with actual audio playback!
+                    asyncio.create_task(_sync_expression(emotions, delay_until_play, duration, current_token))
 
                     output_emitter.push(pcm_bytes)
                     logger.debug(f"Synthesized {duration:.2f}s audio for: {sentence} (Lang: {lang})")
