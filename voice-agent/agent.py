@@ -166,8 +166,6 @@ def on_worker_init():
 
     threading.Thread(target=run_warmup, daemon=True).start()
 
-
-
 class AssistantFnc(llm.ToolContext):
     @llm.function_tool(description="Search the knowledge base for documents about the user's query.")
     async def search_knowledge_base(self, query: str):
@@ -194,6 +192,8 @@ async def voice_session(ctx: agents.JobContext):
     vtube_connected = await VTUBE.connect()
     if vtube_connected:
         logger.info("VTube Studio connected")
+
+    _vtube_is_connected = vtube_connected
 
     stt_plugin = deepgram.STT(
         model="nova-3", 
@@ -240,8 +240,7 @@ async def voice_session(ctx: agents.JobContext):
     )
 
     # Greet with happy expression
-    vtube_connected = VTUBE.connected
-    if vtube_connected:
+    if _vtube_is_connected:
         await VTUBE.set_expression("happy")
 
     await session.generate_reply(

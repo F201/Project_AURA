@@ -29,7 +29,6 @@ logger = logging.getLogger("aura_tts")
 SAMPLE_RATE = 24000
 NUM_CHANNELS = 1
 
-
 @dataclass
 class _TTSOptions:
     model_name: str
