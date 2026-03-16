@@ -1,126 +1,81 @@
 # AURA Voice Agent
 
-The Voice Agent is the "body" and "voice" of AURA, providing real-time audio interaction, speech-to-text, and visual emotional expression.
+LiveKit-based Python agent that handles the full voice pipeline: speech recognition, LLM inference, TTS synthesis, and avatar expression triggering.
 
-## 🚀 Overview
-The Voice Agent uses **LiveKit Agents** to manage low-latency voice streams. It features a custom local TTS engine based on Qwen3-TTS for expressive, high-speed speech without cloud costs.
+## Pipeline
 
-## 🎭 Emotional Engine
-AURA automatically detects emotions from her own speech using a context-aware system.
+```
+Microphone → LiveKit (WebRTC) → Deepgram STT → OpenRouter LLM → Qwen3-TTS → LiveKit → Browser
+                                                      ↓
+                                              Emotion tag parsing
+                                                      ↓
+                                        Avatar Bridge (data channel) → Live2D expressions
+```
 
-### Emotion Recipes
-AURA uses specific tag combinations to achieve nuanced expressions. You can guide her by using these tags in the system prompt:
+## Tech Stack
 
-| Emotion State | Tag Recipe | When to Use |
-|---------------|------------|-------------|
-| **Normal / Default** | `[happy]` | Casual chat, warm moments, kindness |
-| **Curious Idle** | `[smile, sad, sad]` | Thoughtful listening, pondering |
-| **Genuinely Worried** | `[sad, smile]` | Concern, empathy, comforting |
-| **Uncertain Smile** | `[sad, smile, smile]` | Unsure but optimistic |
-| **Devilish Grin** | `[angry, smile, smile]` | Mild mischief, playful teasing |
-| **Kinda Mad** | `[sad, angry]` | Upset, pouting |
-| **Pleading** | `[angry, sad]` | Begging, puppy-eyes |
-| **Sincere Sad** | `[sad]` | Real sadness |
-| **Angry** | `[angry]` | Irritated, frustrated |
-| **Ghost Mode** | `[ghost]` | Toggle ghost companion off/on |
+| | |
+|-|-|
+| **Voice framework** | livekit-agents v1.3+ |
+| **STT** | Deepgram Nova-3 (multilingual) |
+| **LLM** | DeepSeek-V3 via OpenRouter |
+| **TTS** | Faster-Qwen3-TTS (local, 12 Hz codec, 24 kHz output) |
+| **VAD** | Silero |
 
-### Intensity Amplifiers
-These are added to the recipes above to increase intensity:
-- `shadow`: Darkens the face (Menacing/Deep Anger).
-- `pupil_shrink`: Startled or devious eyes (Shock/Deep Mischief).
-- `eyeshine_off`: Removes eye sparkle (Dark/Serious/Creepy).
+## TTS Notes
 
----
+`aura_tts.py` wraps Faster-Qwen3-TTS with:
 
-## 🎨 VTube Studio Integration Guide
+- **`max_new_tokens` budget** — computed from text length to prevent the model generating excess audio for short phrases (Japanese: ~4 chars/s, English: ~12 chars/s, 3× safety factor)
+- **Trailing silence trim** — `_trim_silence()` scans in 25 ms windows and discards audio after the last active speech window
+- **`repetition_penalty=1.15`** — reduces hallucination loops
+- **Serialized GPU inference** — `_gen_lock` prevents concurrent CUDA calls
 
-This guide covers setting up AURA with the **Hu Tao** sample model (Official Live2D Model).
+## Emotion Engine
 
-### 1. Download & Install Model
-1.  **Download**: Get the sample model from [Live2D Sample Models](https://boom.pm/en/items/6845149).
-2.  **Move Files**: Extract the folder into your VTube Studio models directory: 
-    - `.../VTube Studio/VTube Studio_Data/StreamingAssets/Live2DModels/`
-3.  **Load Model**: Open VTube Studio, click the "Person" icon, and select The **Hu Tao**.
+The LLM is prompted to prefix sentences with emotion tags, e.g. `[happy] Great question!`. `avatar_bridge.py` parses these tags and forwards expression names to the dashboard via a LiveKit data channel.
 
-### 2. Configure Expressions (Hotkeys)
-AURA triggers expressions by looking for specific hotkey names. You **must** create these hotkeys in VTube Studio:
+Expression names and their Hu Tao model mappings:
 
-1.  Open **Settings** (Gear icon) -> **Hotkey Settings** (Clapperboard icon).
-2.  Click **+** to add a new hotkey for each state below:
-    - **Name**: `Smile` | **Action**: `Set/Unset Expression` | **Exp**: `SmileLock.exp3.json` | **Key**: `L CTRL + 4`
-    - **Name**: `Sad` | **Action**: `Set/Unset Expression` | **Exp**: `SadLock.exp3.json` | **Key**: `L CTRL + 3`
-    - **Name**: `Angry` | **Action**: `Set/Unset Expression` | **Exp**: `Angry.exp3.json` | **Key**: `L CTRL + 5`
-    - **Name**: `Ghost Happy` | **Action**: `Set/Unset Expression` | **Exp**: `Ghost.exp3.json` | **Key**: `L CTRL + 1`
-    - **Name**: `Ghost Nervous` | **Action**: `Set/Unset Expression` | **Exp**: `GhostChange.exp3.json` | **Key**: `L CTRL + 2`
-    - **Name**: `Shadow` | **Action**: `Set/Unset Expression` | **Exp**: `Shadow.exp3.json` | **Key**: `L CTRL + 6`
-    - **Name**: `Pupil Shrink` | **Action**: `Set/Unset Expression` | **Exp**: `PupilShrink.exp3.json` | **Key**: `L CTRL + 7`
-    - **Name**: `Eyeshine Off` | **Action**: `Set/Unset Expression` | **Exp**: `EyeshineOff.exp3.json` | **Key**: `L CTRL + 8`
+| Tag | Expression file |
+|-----|----------------|
+| `smile` | `SmileLock.exp3.json` |
+| `sad` | `SadLock.exp3.json` |
+| `angry` | `Angry.exp3.json` |
+| `ghost` | `Ghost.exp3.json` |
+| `ghost_nervous` | `GhostChange.exp3.json` |
+| `shadow` | `Shadow.exp3.json` |
+| `pupil_shrink` | `PupilShrink.exp3.json` |
+| `eyeshine_off` | `EyeshineOff.exp3.json` |
 
-> [!IMPORTANT]
-> The hotkey **Names** (e.g., `Smile`, `Shadow`) are what the AURA code looks for. The **Expression** (JSON file) and **Key Combination** are for VTube Studio to handle the visual change.
+Combo recipes:
+- **Shocked**: `[shadow, pupil_shrink, eyeshine_off]`
+- **Furious**: `[shadow, pupil_shrink, eyeshine_off, angry]`
+- **Pleading**: `[angry, sad]`
 
-### 3. Connection & Authorization
-1.  In AURA's `.env`, set `VTUBE_ENABLED=true`.
-2.  Ensure **VTube Studio API** is enabled in VTube Studio Settings -> Plugins.
-3.  Run the system: Use the root **`start_aura.bat`**.
-4.  **Connect to AURA** via the Dashboard (usually `http://localhost:5173`).
-5.  VTube Studio will show a **Plugin Permission Request** as soon as the Voice session starts. Click **Allow**.
-6.  A `token.txt` will be generated in `voice-agent/` to remember the session.
+## Configuration (`.env`)
 
-> [!TIP]
-> To re-test the authorization flow, simply delete `voice-agent/token.txt` and restart the agent.
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `DEEPGRAM_API_KEY` | Yes | Speech recognition |
+| `OPENROUTER_API_KEY` | Yes | LLM inference |
+| `LIVEKIT_URL` | Yes | LiveKit server URL |
+| `LIVEKIT_API_KEY` | Yes | LiveKit credentials |
+| `LIVEKIT_API_SECRET` | Yes | LiveKit credentials |
+| `VTUBE_ENABLED` | No | `"true"` to enable VTube Studio integration (default: `"false"`) |
 
----
+## Running
 
-## 🔊 Lip Sync & Virtual Audio Cable (VAC)
+```bash
+conda env create -f environment.yml
+conda activate aura
+python agent.py dev
+```
 
-To ensure AURA's mouth movements perfectly match her TTS output without background noise interference, use a Virtual Audio Cable.
+Or use `start_aura.bat` from the project root to start all services together.
 
-### 1. Mouth Open Parameter
-Go to **Model Settings** (Person with Gear icon) -> **Parameter Settings**:
-1.  Find the parameter **Mouth Open**.
-2.  **Input**: Set to `VoiceVolume`.
-3.  **Output**: Set to `ParamMouthOpenY`.
-4.  **Smoothing**: Set to `10`.
-5.  **Input Range (IN)**: Set Min `0` and Max `1`.
-6.  **Output Range (OUT)**: Set Min `0` and Max **`0.7`** (This prevents the "jaw dropping" effect by capping how wide the mouth can open).
+## VTube Studio Integration (optional, disabled by default)
 
-### 1. Install VB-CABLE
-- Download and install [VB-CABLE Driver](https://vb-audio.com/Cable/), click on New Package.
-- **Restart your computer** after installation.
+Set `VTUBE_ENABLED=true` in `.env`. Ensure the VTube Studio WebSocket API is enabled on port 8001. On first connect, click **Allow** in VTube Studio — a `token.txt` will be saved locally (gitignored).
 
-### 2. Route AURA's Output
-AURA (via LiveKit) needs to output her voice to the **CABLE Input**. You can set this in Windows:
-1. Go to VTube Studio > Settings > Microphone Settings > Check toggle microphone > Set Microphone to CABLE Output (VB-Audio Virtual Cable)
-2. Go to the browser that runs your Aura (e.g. Chrome, Edge), let aura speak for a second or play an audio in that browser.
-3. Right click speaker icon in the bottom right tray icon > sound settings > In the Advanced tab, go to volume mixer > Set the output of the browser to CABLE Input (VB-Audio Virtual Cable)
-4. Right now you can't hear anything from your browser so go back to the sound settings > in the advanced tab go to "More sound settings" > Recording > Cable Output > Properties > Listen > Check "Listen to this device" > Set "Play back through this device" to your speakers/headphones.
-5. Done Aura should be able to lipsync with Vtube Studio!
-
----
-
-## 👄 Calibrating Mouth Movement
-
-To prevent AURA from constantly "dropping her jaw" or looking unnatural while speaking, fine-tune these parameters in VTS:
-
-### 1. Sensitivity & Gain
-- **Volume Gain**: Adjust so the volume bar reaches about 70-80% when she speaks at normal volume. Start around `2.0` and tweak.
-- **Frequency Gain**: This controls how specific frequencies affect mouth shape. High frequency gain makes the mouth open wider for sharp sounds.
-
----
-
-## 🛠 Tech Stack
-- **Voice Pipeline**: LiveKit Agents
-- **STT**: Deepgram (Nova-3)
-- **LLM**: DeepSeek-V3 (via OpenRouter)
-- **TTS**: Faster-Qwen3-TTS (Local)
-- **VTube Interaction**: `pyvts` (WebSocket)
-
-## 🏃 Running the System
-1.  **Preparation**: Ensure VTube Studio is open and your Microphone setup (VB-CABLE) is ready.
-2.  **Start Everything**: Run the launcher from the project root:
-    ```powershell
-    .\start_aura.bat
-    ```
-3.  **Interaction**: Open the Dashboard and start a voice session.
-
+For the best experience, name VTube Studio hotkeys to match the expression names in the table above.

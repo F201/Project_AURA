@@ -1,14 +1,23 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { AvatarRenderer } from './AvatarRenderer'
 
 export default function CallOverlay({ onClose }) {
     const [status, setStatus] = useState('connecting')
     const [elapsed, setElapsed] = useState(0)
-    const roomRef = useRef(null)
-    const timerRef = useRef(null)
+    const roomRef    = useRef(null)
+    const timerRef   = useRef(null)
+    const avatarRef  = useRef(null)
+    const audioCtxRef = useRef(null)
+    const analyserRef = useRef(null)
+    const lipRafRef   = useRef(null)
 
     // ─── Connect to LiveKit ──────────────────────
     useEffect(() => {
         let cancelled = false
+
+        const ctx = new AudioContext()
+        audioCtxRef.current = ctx
+        ctx.resume().catch(() => {})
 
         const connect = async () => {
             try {
@@ -31,11 +40,45 @@ export default function CallOverlay({ onClose }) {
                         const el = track.attach()
                         el.id = 'aura-agent-audio'
                         document.body.appendChild(el)
+
+                        const analyser = ctx.createAnalyser()
+                        analyser.fftSize = 2048
+                        analyser.smoothingTimeConstant = 0.8
+                        const src = ctx.createMediaStreamSource(
+                            new MediaStream([track.mediaStreamTrack])
+                        )
+                        src.connect(analyser)
+                        analyserRef.current = analyser
+
+                        const buf = new Float32Array(analyser.fftSize)
+                        const tick = () => {
+                            lipRafRef.current = requestAnimationFrame(tick)
+                            analyser.getFloatTimeDomainData(buf)
+                            let sum = 0
+                            for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i]
+                            const rms = Math.sqrt(sum / buf.length)
+                            avatarRef.current?.setMouthOpen(
+                                rms > 0.008 ? Math.min(0.55, rms * 10) : 0
+                            )
+                        }
+                        tick()
                     }
                 })
 
                 room.on(RoomEvent.TrackUnsubscribed, (track) => {
                     track.detach().forEach((el) => el.remove())
+                })
+
+                // ── Expression events from Python avatar_bridge.py ──────────
+                room.on(RoomEvent.DataReceived, (payload) => {
+                    try {
+                        const msg = JSON.parse(new TextDecoder().decode(payload))
+                        if (msg.type === 'expression') {
+                            avatarRef.current?.setExpression(msg.expressions, msg.duration)
+                        }
+                    } catch {
+                        // malformed payload — silently ignore
+                    }
                 })
 
                 await room.connect(url, token)
@@ -60,6 +103,8 @@ export default function CallOverlay({ onClose }) {
 
     const cleanup = useCallback(() => {
         if (timerRef.current) clearInterval(timerRef.current)
+        if (lipRafRef.current) cancelAnimationFrame(lipRafRef.current)
+        if (audioCtxRef.current) { audioCtxRef.current.close(); audioCtxRef.current = null }
         if (roomRef.current) {
             roomRef.current.disconnect()
             roomRef.current = null
@@ -74,16 +119,31 @@ export default function CallOverlay({ onClose }) {
 
     const formatTime = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
 
+    const vw = window.innerWidth
+    const vh = window.innerHeight
+
     return (
-        <div className="fixed inset-0 z-50 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex flex-col items-center justify-center">
-            {/* Pulsing avatar */}
-            <div className="relative mb-8">
-                <div className={`w-32 h-32 rounded-full aura-gradient flex items-center justify-center shadow-2xl shadow-primary/30 ${status === 'connected' ? 'animate-pulse' : ''
-                    }`}>
-                    <span className="material-icons-round text-white text-5xl">wb_sunny</span>
-                </div>
+        // Full-screen container — avatar fills the whole background,
+        // controls float as an overlay on the right side (same as AIRI).
+        <div className="fixed inset-0 z-50 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
+
+            {/* ── Live2D Avatar — full-screen canvas ── */}
+            <AvatarRenderer ref={avatarRef} width={vw} height={vh} />
+
+            {/* ── Controls — overlaid panel, right side ── */}
+            <div className="absolute right-10 top-1/2 -translate-y-1/2 flex flex-col items-center gap-6
+                            bg-slate-900/60 backdrop-blur-sm rounded-2xl px-8 py-6 shadow-xl">
+                <h2 className="text-white text-3xl font-bold">AURA</h2>
+
+                <p className="text-primary/80 text-sm font-medium">
+                    {status === 'connecting' && 'Connecting...'}
+                    {status === 'connected'  && formatTime(elapsed)}
+                    {status === 'error'      && 'Connection failed'}
+                </p>
+
+                {/* Waveform */}
                 {status === 'connected' && (
-                    <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 flex gap-1">
+                    <div className="flex gap-1">
                         {[0, 1, 2, 3, 4].map((i) => (
                             <div
                                 key={i}
@@ -96,23 +156,16 @@ export default function CallOverlay({ onClose }) {
                         ))}
                     </div>
                 )}
+
+                {/* Hangup */}
+                <button
+                    type="button"
+                    onClick={handleHangup}
+                    className="w-16 h-16 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center text-white shadow-lg shadow-red-500/30 transition-all cursor-pointer"
+                >
+                    <span className="material-icons-round text-3xl">call_end</span>
+                </button>
             </div>
-
-            <h2 className="text-white text-2xl font-bold mb-1">AURA</h2>
-            <p className="text-primary/80 text-sm font-medium mb-8">
-                {status === 'connecting' && 'Connecting...'}
-                {status === 'connected' && formatTime(elapsed)}
-                {status === 'error' && 'Connection failed'}
-            </p>
-
-            {/* Hangup button */}
-            <button
-                type="button"
-                onClick={handleHangup}
-                className="w-16 h-16 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center text-white shadow-lg shadow-red-500/30 transition-all cursor-pointer"
-            >
-                <span className="material-icons-round text-3xl">call_end</span>
-            </button>
         </div>
     )
 }

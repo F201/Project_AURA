@@ -113,3 +113,4 @@ brain/
 /scripts
 *.pptx
 voice-agent/token.txt
+/.claude

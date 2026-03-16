@@ -22,8 +22,11 @@ class VTubeController:
             "authentication_token_path": token_path
         }
         self.vts = None
+        self.connected = False
         self.is_enabled = os.getenv("VTUBE_ENABLED", "false").lower() == "true"
         self._connected_loop = None  # Track which event loop owns the VTS connection
+        self._vts_lock = asyncio.Lock()  # Serialize all VTS API requests
+        self.active_expressions = {}  # name -> hotkey_id, tracks which expressions are currently active
         
         if not self.is_enabled:
             logger.info("VTube Studio integration is DISABLED via .env")
@@ -31,7 +34,6 @@ class VTubeController:
         
         # Expression mapping (matches hotkey names or filenames in VTube Studio)
         self.expressions = {
-            "happy": "Smile",
             "sad": "Sad",
             "smile": "Smile",
             "angry": "Angry",
@@ -50,21 +52,33 @@ class VTubeController:
             "幽霊": "Ghost Happy",
             "緊張": "Ghost Nervous",
             "影": "Shadow",
-            "瞳孔": "Pupil Shrink"
+            "瞳孔": "Pupil Shrink",
+            "wink": "EyeOpenLeft", # Default to left eye for winks
+            "tongue": "TongueOut",
+            # Japanese Aliases for features
+            "ウインク": "wink",
+            "べー": "tongue"
         }
         self.expression_hotkey_map = {}
         
+        # Track raw parameter values to restore them later: parameter_name -> last_injected_value
+        self.injected_parameters = {}
+        
+        # Prevent repetitive animations (like double-winking) in a single turn
+        self.turn_animation_log = set() # tags triggered this turn
+        
+        # Mapping for reset logic: parameter -> trigger_feature
+        self.PARAM_TO_FEATURE = {
+            "EyeOpenLeft": "wink",
+            "EyeOpenRight": "wink",
+            "BrowLeftY": "wink",
+            "MouthSmile": "wink",
+            "TongueOut": "tongue",
+            "MouthOpen": "tongue"
+        }
+        
         # Bilingual emotion keywords
         self.emotion_keywords = {
-            
-            "happy": [
-                # English
-                "happy", "glad", "great", "awesome", "wonderful", "love", "like", 
-                "enjoy", "fun", "yay", "excited", "joy", "cheerful", "delighted",
-                # Japanese
-                "嬉しい", "うれしい", "楽しい", "たのしい", "幸せ", "しあわせ",
-                "やった", "最高", "さいこう", "素晴らしい", "すばらしい", "ワクワク"
-            ],
             "sad": [
                 # English
                 "sad", "sorry", "unfortunate", "regret", "miss", "lonely", "cry", 
@@ -85,9 +99,13 @@ class VTubeController:
             "smile": [
                 # English
                 "smile", "grin", "chuckle", "giggle", "teehee", "hehe", "haha",
+                "happy", "glad", "great", "awesome", "wonderful", "love", "like", 
+                "enjoy", "fun", "yay", "excited", "joy", "cheerful", "delighted",
                 # Japanese
                 "笑", "わら", "微笑む", "ほほえむ", "ニヤニヤ", "にやにや", "くすくす",
-                "あはは", "ふふふ"
+                "あはは", "ふふふ",
+                "嬉しい", "うれしい", "楽しい", "たのしい", "幸せ", "しあわせ",
+                "やった", "最高", "さいこう", "素晴らしい", "すばらしい", "ワクワク"
             ],
             "ghost": [
                 # English
@@ -98,7 +116,9 @@ class VTubeController:
             "ghost_nervous": ["nervous", "flustered", "caught", "embarrassed", "shook"],
             "shadow": ["scary", "menacing", "dark", "evil", "shadow", "creepy"],
             "eyeshine_off": ["deadface", "disappointed", "uncool", "serious", "cold", "empty"],
-            "pupil_shrink": ["prank", "mischief", "cheeky", "teasing", "silly", "surprise"]
+            "pupil_shrink": ["prank", "mischief", "cheeky", "teasing", "silly", "surprise"],
+            "wink": ["wink", "blink", "winked", "ウインク"],
+            "tongue": ["tongue", "bleh", "cheeky", "sticking out", "べー"]
         }
     
     async def connect(self):
@@ -181,12 +201,13 @@ class VTubeController:
     async def _cache_hotkeys(self):
         """Fetch available hotkeys and map them to our internal expression names"""
         try:
-            response = await self.vts.request({
-                "apiName": "VTubeStudioPublicAPI",
-                "apiVersion": "1.0",
-                "requestID": "cacheHotkeys",
-                "messageType": "HotkeysInCurrentModelRequest"
-            })
+            async with self._vts_lock:
+                response = await self.vts.request({
+                    "apiName": "VTubeStudioPublicAPI",
+                    "apiVersion": "1.0",
+                    "requestID": "cacheHotkeys",
+                    "messageType": "HotkeysInCurrentModelRequest"
+                })
             
             available_hotkeys = response.get("data", {}).get("availableHotkeys", [])
             
@@ -223,10 +244,24 @@ class VTubeController:
             logger.info("Disconnected from VTube Studio")
     
     BASE_EMOTIONS = ["happy", "sad", "smile", "angry", "ghost", "ghost_nervous"]
+    FEATURES = ["wink", "tongue"]
+    AMPLIFIERS = ["shadow", "eyeshine_off", "pupil_shrink"]
+    
+    # Allowed multi-base combos (order-independent)
+    ALLOWED_COMBOS = [
+        {"angry", "sad"},      # Pleading / Girlfriend Mad
+        {"sad", "smile"},      # Genuinely Worried / Uncertain Smile
+        {"angry", "smile"},    # Devilish Grin
+    ]
+
+    async def start_turn(self):
+        """Called at the start of a new interaction to reset turn-based logic."""
+        self.turn_animation_log.clear()
+        logger.debug("Turn animation log cleared.")
 
     async def set_expression(self, expression_names, reset_after=None):
-        """Set one or more expressions by name. 
-        Enforces mutual exclusivity for base emotions (happy, sad, etc.)."""
+        """Set one or more expressions by name.
+        Allows specific multi-base combos and duplicate base emotions for nuance."""
         if not self.is_enabled:
             return
             
@@ -241,34 +276,135 @@ class VTubeController:
         
         if isinstance(expression_names, str):
             expression_names = [expression_names]
-            
-        # Enforce base emotion rules:
-        # 1. Base emotions are generally mutually exclusive.
-        # 2. EXCEPTION: [angry, sad] is allowed for a 'pleading/memelas' look (order matters).
-        final_expressions = []
-        base_emotions_found = []
         
-        for name in expression_names:
-            if name in self.BASE_EMOTIONS:
-                # Special case: allow 'sad' if 'angry' was already added
-                if name == "sad" and "angry" in base_emotions_found and "sad" not in base_emotions_found:
-                    final_expressions.append(name)
-                    base_emotions_found.append(name)
-                elif not base_emotions_found:
-                    final_expressions.append(name)
-                    base_emotions_found.append(name)
-                else:
-                    logger.debug(f"Skipping exclusive base emotion: {name}")
-            else:
-                final_expressions.append(name)
+        # Pass through all expressions — the LLM is now trained on the correct recipes.
+        # We just validate that base emotion combos are in our allowed list.
+        base_in_request = [n for n in expression_names if n in self.BASE_EMOTIONS]
+        unique_bases = set(base_in_request)
+        
+        # If there are multiple DIFFERENT base emotions, check they form an allowed combo
+        if len(unique_bases) > 1:
+            if unique_bases not in self.ALLOWED_COMBOS:
+                # Not an allowed combo — keep only the first base emotion + amplifiers
+                first_base = base_in_request[0]
+                expression_names = [first_base] + [n for n in expression_names if n in self.AMPLIFIERS]
+                logger.debug(f"Filtered disallowed combo to: {expression_names}")
 
-        for expression_name in final_expressions:
-            hotkey_id = self.expression_hotkey_map.get(expression_name)
-            if not hotkey_id:
-                logger.debug(f"No hotkey ID found for expression: {expression_name}")
-                continue
+        # target_sequence: list of (hotkey_id or None, expr_name)
+        target_sequence = []  
+        target_id_set = set() # Unique hotkeys intended to be active
+        
+        for expr in expression_names:
+            hotkey_id = self.expression_hotkey_map.get(expr)
+            # Add to sequence if it's a known emotion, even if no hotkey ID (for features)
+            if expr in self.expressions:
+                target_sequence.append((hotkey_id, expr))
+                if hotkey_id:
+                    target_id_set.add(hotkey_id)
+        
+        active_id_set = set(self.active_expressions.values())
+        
+        # 1. Turn OFF hotkeys that are active but NOT in the new target
+        ids_to_off = active_id_set - target_id_set
+        for hid in ids_to_off:
+            # Find the name we used to activate this hotkey
+            names = [n for n, h in self.active_expressions.items() if h == hid]
+            if names:
+                await self._trigger_hotkey(names[0])
+                del self.active_expressions[names[0]]
             
-            try:
+        # 1.1 Turn OFF injected parameters if their controlling feature is not in target
+        for p_name in list(self.injected_parameters.keys()):
+            feature = self.PARAM_TO_FEATURE.get(p_name)
+            if feature not in expression_names:
+                # Reset to a safe default (usually 1.0 for eyes, 0.0 for tongue/mouth)
+                default_val = 1.0 if "EyeOpen" in p_name else 0.0
+                await self.inject_parameter(p_name, default_val)
+                del self.injected_parameters[p_name]
+
+        # 2. Sequential triggers for requested expressions (including duplicates)
+        recent_features = set() # Prevent redundant injections in same call
+        for hotkey_id, expr in target_sequence:
+            # Prevent double-winking/tongue if already done this turn
+            if expr in self.FEATURES and expr in self.turn_animation_log:
+                continue
+
+            # If the expression is ALREADY active, we want to pulse it (turn off, then back on)
+            # so that VTube Studio plays the trigger animation again rather than ignoring it 
+            # or turning it off permanently and leaving it off.
+            if expr in self.active_expressions and self.active_expressions[expr] == hotkey_id:
+                # Force off
+                await self._trigger_hotkey(expr, hotkey_id, action="Toggled OFF to pulse")
+                del self.active_expressions[expr]
+                await asyncio.sleep(0.35) # Give the model a moment to snap out physically
+                
+            success = await self._trigger_hotkey(expr, hotkey_id)
+            if success:
+                # Add to active tracking
+                self.active_expressions[expr] = hotkey_id
+            
+            # Special handling for direct parameters (wink/tongue)
+            if expr == "wink" and "wink" not in recent_features:
+                # Natural Wink: Close left eye, lower left brow, smile more
+                await self.inject_parameter("EyeOpenLeft", 0.0)
+                await self.inject_parameter("BrowLeftY", 0.0) 
+                await self.inject_parameter("MouthSmile", 1.0)
+                self.injected_parameters["EyeOpenLeft"] = 0.0
+                self.injected_parameters["BrowLeftY"] = 0.0
+                self.injected_parameters["MouthSmile"] = 1.0
+                recent_features.add("wink")
+                self.turn_animation_log.add("wink")
+            elif expr == "tongue" and "tongue" not in recent_features:
+                # Stick tongue out (value 1.0) AND open mouth WIDE (value 1.0)
+                # Most models need the mouth fully open to see the tongue!
+                await self.inject_parameter("MouthOpen", 1.0)
+                await self.inject_parameter("TongueOut", 1.0)
+                await self.inject_parameter("MouthSmile", 0.0)
+                self.injected_parameters["MouthOpen"] = 1.0
+                self.injected_parameters["TongueOut"] = 1.0
+                self.injected_parameters["MouthSmile"] = 0.0
+                recent_features.add("tongue")
+                self.turn_animation_log.add("tongue")
+                
+            # Yield substantially to prevent VTube Studio from dropping rapid combo inputs 
+            # and to allow Live2D parameters to transition smoothly.
+            await asyncio.sleep(0.35)
+
+    async def inject_parameter(self, parameter_name, value):
+        """Directly inject a numerical value into a Live2D parameter."""
+        if not self.connected or not self.vts:
+            return False
+            
+        try:
+            async with self._vts_lock:
+                await self.vts.request({
+                    "apiName": "VTubeStudioPublicAPI",
+                    "apiVersion": "1.0",
+                    "requestID": f"inject_{parameter_name}",
+                    "messageType": "InjectParameterDataRequest",
+                    "data": {
+                        "parameterValues": [
+                            {
+                                "id": parameter_name,
+                                "value": float(value),
+                                "weight": 1.0
+                            }
+                        ]
+                    }
+                })
+            return True
+        except Exception as e:
+            logger.error(f"Failed to inject parameter {parameter_name}: {e}")
+            return False
+
+    async def _trigger_hotkey(self, expression_name, hotkey_id=None, action="Triggered"):
+        hotkey_id = hotkey_id if hotkey_id else self.expression_hotkey_map.get(expression_name)
+        if not hotkey_id:
+            logger.debug(f"No hotkey ID found for expression: {expression_name}")
+            return False
+        
+        try:
+            async with self._vts_lock:
                 response = await self.vts.request({
                     "apiName": "VTubeStudioPublicAPI",
                     "apiVersion": "1.0",
@@ -278,18 +414,29 @@ class VTubeController:
                         "hotkeyID": hotkey_id
                     }
                 })
-                
-                if response.get("messageType") == "APIError":
-                    data = response.get("data", {})
-                    if data.get("errorID") in [100, 101]: # Authentication errors
-                        logger.warning("VTube Studio authentication expired. Reconnecting...")
-                        self.connected = False
-                        return
+            
+            if response.get("messageType") == "APIError":
+                data = response.get("data", {})
+                if data.get("errorID") in [100, 101]: # Authentication errors
+                    logger.warning("VTube Studio authentication expired. Reconnecting...")
+                    self.connected = False
+                    return False
+            logger.info(f"{action} expression: {expression_name} (ID: {hotkey_id})")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to trigger expression {expression_name}: {e}")
+            self.connected = False
+            return False
 
-                logger.info(f"Triggered expression: {expression_name} (ID: {hotkey_id})")
-            except Exception as e:
-                logger.error(f"Failed to trigger expression {expression_name}: {e}")
-                self.connected = False
+    async def reset_to_neutral(self):
+        """Reset face to neutral state: no active expressions, defaulting to base model."""
+        if not self.is_enabled or not self.connected:
+            return
+        
+        # Turn off all active expressions
+        for expr_name in list(self.active_expressions.keys()):
+            await self._trigger_hotkey(expr_name)
+        self.active_expressions.clear()
     
     def detect_emotion(self, text):
         """Bilingual detection: Looks for explicit tags [tag1, tag2] first, then falls back to keywords."""
@@ -346,7 +493,10 @@ class VTubeController:
         # 2. Remove common roleplay "plain text" phrases the LLM might hallucinate
         roleplay_phrases = [
             "cracks knuckles", "huffs dramatically", "twirls playfully", 
-            "tilts head", "winks", "shrugs", "sighs", "giggles"
+            "tilts head", "winks", "shrugs", "sighs", "giggles",
+            "EyeOpenLeft", "EyeOpenRight", "TongueOut",
+            "MouthOpen", "Brows", "MouthX",
+            "ウインク", "べー"
         ]
         for phrase in roleplay_phrases:
             text = re.sub(rf'\b{re.escape(phrase)}\b', '', text, flags=re.IGNORECASE)

@@ -1,0 +1,49 @@
+{
+  "name": "aura-desktop",
+  "version": "1.0.0",
+  "description": "AURA Desktop Overlay — Hu Tao floats on your desktop",
+  "main": "electron/main.js",
+  "type": "commonjs",
+  "scripts": {
+    "dev": "concurrently \"vite\" \"wait-on http://localhost:5174 && electron .\"",
+    "build": "vite build && electron-builder",
+    "start": "electron .",
+    "test": "node node_modules/vitest/vitest.mjs run"
+  },
+  "dependencies": {
+    "livekit-client": "^2.17.1",
+    "pixi-live2d-display": "^0.4.0",
+    "pixi.js": "^7.4.2",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.3.0",
+    "@vitejs/plugin-react": "^5.1.0",
+    "concurrently": "^9.0.0",
+    "electron": "^35.0.0",
+    "electron-builder": "^25.0.0",
+    "jsdom": "^26.1.0",
+    "vite": "^6.3.1",
+    "vitest": "^3.2.4",
+    "wait-on": "^8.0.0"
+  },
+  "build": {
+    "appId": "com.aura.desktop",
+    "productName": "AURA Desktop",
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.ico"
+    },
+    "directories": {
+      "output": "dist-electron"
+    },
+    "files": [
+      "dist/**",
+      "electron/**",
+      "assets/**",
+      "public/**"
+    ]
+  }
+}

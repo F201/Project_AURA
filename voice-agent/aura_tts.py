@@ -6,10 +6,12 @@ import asyncio
 import logging
 import threading
 import uuid
+import time
 from dataclasses import dataclass
 from typing import Optional
 import numpy as np
 from vtube_controller import VTUBE
+from avatar_bridge import BRIDGE
 
 from livekit import rtc
 from livekit.agents import tts, tokenize
@@ -28,6 +30,27 @@ logger = logging.getLogger("aura_tts")
 
 SAMPLE_RATE = 24000
 NUM_CHANNELS = 1
+
+
+def _trim_silence(audio: np.ndarray, threshold: float = 0.004,
+                  sample_rate: int = SAMPLE_RATE, tail_ms: int = 120) -> np.ndarray:
+    """Trim trailing silence from generated audio. Scans in 25 ms windows."""
+    window = sample_rate // 40
+    tail   = int(tail_ms * sample_rate / 1000)
+    n_win  = len(audio) // window
+    if n_win == 0:
+        return audio
+
+    rms = np.array([
+        np.sqrt(np.mean(audio[i * window:(i + 1) * window] ** 2))
+        for i in range(n_win)
+    ])
+    above = np.where(rms > threshold)[0]
+    if len(above) == 0:
+        return audio[:window]
+
+    end = min(int(above[-1]) * window + tail, len(audio))
+    return audio[:end]
 
 
 @dataclass
@@ -117,15 +140,22 @@ class AuraTTS(tts.TTS):
         NOTE: text should already be cleaned by format_for_tts before calling this."""
         if not text or not text.strip():
             return b""
-            
+
+        # Budget: Japanese ≈ 4 chars/s, English ≈ 12 chars/s. 3× safety, min 2 s.
+        chars_per_sec = 4.0 if language == "Japanese" else 12.0
+        max_new_tokens = max(24, int(len(text) / chars_per_sec * 3.0 * 12))
+
         with self._gen_lock:
             audio_np, sample_rate = self._model.generate_voice_clone(
                 text=text,
                 ref_audio=self._opts.ref_audio,
                 ref_text=self._opts.ref_text,
                 language=language,
+                max_new_tokens=max_new_tokens,
+                append_silence=False,
+                repetition_penalty=1.15,
             )
-            audio_data = audio_np[0]
+            audio_data = _trim_silence(audio_np[0])
 
             # Convert float32 -> int16 PCM bytes
             audio_int16 = (audio_data * 32767).clip(-32768, 32767).astype(np.int16)
@@ -195,6 +225,9 @@ class _AuraSynthesizeStream(tts.SynthesizeStream):
             # Custom delimiters: standard + Japanese full-width punctuation
         )
         token_stream = tokenizer.stream()
+        
+        # Track pending reset task so we can cancel it when a new sentence starts
+        _pending_reset: Optional[asyncio.Task] = None
 
         async def _process_input():
             """Read text from the input channel and push to the tokenizer."""
@@ -213,6 +246,8 @@ class _AuraSynthesizeStream(tts.SynthesizeStream):
 
         async def _synthesize():
             """Read complete sentences from the tokenizer and synthesize."""
+            nonlocal _pending_reset
+            
             async for ev in token_stream:
                 raw_sentence = ev.token
                 
@@ -222,6 +257,10 @@ class _AuraSynthesizeStream(tts.SynthesizeStream):
 
                 # Clean sentence for TTS
                 sentence = VTUBE.format_for_tts(raw_sentence)
+                
+                # Strip trailing dashes and tildes that TTS speaks as "minus"
+                sentence = sentence.rstrip('-~～')
+                sentence = sentence.strip()
                 
                 # SAFETY: Skip if sentence contains NO alphanumeric characters (prevents runaway loops)
                 if not any(c.isalnum() for c in sentence):
@@ -239,23 +278,55 @@ class _AuraSynthesizeStream(tts.SynthesizeStream):
                         continue
                         
                     duration = len(pcm_bytes) / (SAMPLE_RATE * NUM_CHANNELS * 2)
+                    
+                    # SAFETY: Cap audio at 15 seconds per sentence to prevent TTS runaway
+                    MAX_SENTENCE_DURATION = 15.0
+                    if duration > MAX_SENTENCE_DURATION:
+                        logger.warning(f"TTS generated {duration:.1f}s for '{sentence[:30]}' - truncating to {MAX_SENTENCE_DURATION}s")
+                        max_bytes = int(MAX_SENTENCE_DURATION * SAMPLE_RATE * NUM_CHANNELS * 2)
+                        pcm_bytes = pcm_bytes[:max_bytes]
+                        duration = MAX_SENTENCE_DURATION
 
-                    # Trigger expressions per sentence
-                    # Use fire-and-forget with proper loop handling
+                    # Virtual Playhead syncing for TTS->VTube Expressions
+                    # LiveKit queues audio and plays it sequentially, but we generate it much faster than real-time.
+                    # If we trigger expressions immediately, they fall completely out-of-sync with the audio.
+                    now = time.time()
+                    if not hasattr(self, '_playhead') or self._playhead < now:
+                        self._playhead = now
+                        
+                    self._reset_token = getattr(self, '_reset_token', 0) + 1
+                    current_token = self._reset_token
+                        
+                    delay_until_play = self._playhead - now
+                    self._playhead += duration
+                    
                     emotions = VTUBE.detect_emotion(raw_sentence)
-                    if emotions:
+                    
+                    async def _sync_expression(em_list, delay_start, dur, token):
                         try:
-                            await VTUBE.set_expression(emotions)
-                            # Schedule reset after audio finishes
-                            async def _reset_after(ems, dur):
-                                await asyncio.sleep(dur)
-                                try:
-                                    await VTUBE.set_expression(ems)
-                                except Exception:
-                                    pass
-                            asyncio.create_task(_reset_after(emotions, duration))
-                        except Exception as ve:
-                            logger.debug(f"VTS expression error (non-fatal): {ve}")
+                            if delay_start > 0:
+                                await asyncio.sleep(delay_start)
+
+                            if em_list:
+                                # Fire both simultaneously — BRIDGE never waits for VTS's sleeps
+                                await asyncio.gather(
+                                    VTUBE.set_expression(em_list),
+                                    BRIDGE.send_expression(em_list, dur),
+                                )
+
+                            await asyncio.sleep(dur + 0.3)  # grace period after audio
+
+                            # Only clear to neutral if we are STILL the very last scheduled sentence
+                            if getattr(self, '_reset_token', -1) == token:
+                                await asyncio.gather(
+                                    VTUBE.reset_to_neutral(),
+                                    BRIDGE.send_neutral(),
+                                )
+                        except Exception as e:
+                            logger.debug(f"VTS sync error (non-fatal): {e}")
+
+                    # Trigger emotions perfectly sequenced with actual audio playback!
+                    asyncio.create_task(_sync_expression(emotions, delay_until_play, duration, current_token))
 
                     output_emitter.push(pcm_bytes)
                     logger.debug(f"Synthesized {duration:.2f}s audio for: {sentence} (Lang: {lang})")

@@ -1,0 +1,608 @@
+{
+  "model_name": "Hu Tao",
+  "model_id": "6ad586a2dcd949888e136335f82bec1a",
+  "parameters": [
+    {
+      "name": "FacePositionX",
+      "value": 0.7418412566184998,
+      "min": -15.0,
+      "max": 15.0
+    },
+    {
+      "name": "FacePositionY",
+      "value": 0.8714303374290466,
+      "min": -15.0,
+      "max": 15.0
+    },
+    {
+      "name": "FacePositionZ",
+      "value": 4.673953533172607,
+      "min": -10.0,
+      "max": 10.0
+    },
+    {
+      "name": "FaceAngleX",
+      "value": -1.5611695051193237,
+      "min": -30.0,
+      "max": 30.0
+    },
+    {
+      "name": "FaceAngleY",
+      "value": -0.5977116823196411,
+      "min": -30.0,
+      "max": 30.0
+    },
+    {
+      "name": "FaceAngleZ",
+      "value": 0.47375181317329407,
+      "min": -90.0,
+      "max": 90.0
+    },
+    {
+      "name": "MouthSmile",
+      "value": 0.2726834714412689,
+      "min": 0.0,
+      "max": 1.0
+    },
+    {
+      "name": "MouthOpen",
+      "value": 0.24153853952884674,
+      "min": 0.0,
+      "max": 1.0
+    },
+    {
+      "name": "Brows",
+      "value": 0.5095319151878357,
+      "min": 0.0,
+      "max": 1.0
+    },
+    {
+      "name": "TongueOut",
+      "value": 0.0,
+      "min": 0.0,
+      "max": 1.0
+    },
+    {
+      "name": "CheekPuff",
+      "value": 0.0,
+      "min": 0.0,
+      "max": 1.0
+    },
+    {
+      "name": "FaceAngry",
+      "value": 0.0,
+      "min": 0.0,
+      "max": 1.0
+    },
+    {
+      "name": "BrowLeftY",
+      "value": 0.5081056356430054,
+      "min": 0.0,
+      "max": 1.0
+    },
+    {
+      "name": "BrowRightY",
+      "value": 0.510958194732666,
+      "min": 0.0,
+      "max": 1.0
+    },
+    {
+      "name": "EyeOpenLeft",
+      "value": 0.5355446338653564,
+      "min": 0.0,
+      "max": 1.0
+    },
+    {
+      "name": "EyeOpenRight",
+      "value": 0.5424930453300476,
+      "min": 0.0,
+      "max": 1.0
+    },
+    {
+      "name": "EyeLeftX",
+      "value": 0.014099391177296638,
+      "min": -1.0,
+      "max": 1.0
+    },
+    {
+      "name": "EyeLeftY",
+      "value": 0.2377961128950119,
+      "min": -1.0,
+      "max": 1.0
+    },
+    {
+      "name": "EyeRightX",
+      "value": 0.014099391177296638,
+      "min": -1.0,
+      "max": 1.0
+    },
+    {
+      "name": "EyeRightY",
+      "value": 0.2377961128950119,
+      "min": -1.0,
+      "max": 1.0
+    },
+    {
+      "name": "MousePositionX",
+      "value": 0.06171870231628418,
+      "min": -1.0,
+      "max": 1.0
+    },
+    {
+      "name": "MousePositionY",
+      "value": -0.42875003814697266,
+      "min": -1.0,
+      "max": 1.0
+    },
+    {
+      "name": "VoiceVolume",
+      "value": 0.0,
+      "min": 0.0,
+      "max": 1.0
+    },
+    {
+      "name": "VoiceFrequency",
+      "value": 0.5,
+      "min": 0.0,
+      "max": 1.0
+    },
+    {
+      "name": "VoiceVolumePlusMouthOpen",
+      "value": 0.24153853952884674,
+      "min": 0.0,
+      "max": 1.0
+    },
+    {
+      "name": "VoiceFrequencyPlusMouthSmile",
+      "value": 0.2726834714412689,
+      "min": 0.0,
+      "max": 1.0
+    },
+    {
+      "name": "VoiceA",
+      "value": 0.0,
+      "min": 0.0,
+      "max": 1.0
+    },
+    {
+      "name": "VoiceI",
+      "value": 0.0,
+      "min": 0.0,
+      "max": 1.0
+    },
+    {
+      "name": "VoiceU",
+      "value": 0.0,
+      "min": 0.0,
+      "max": 1.0
+    },
+    {
+      "name": "VoiceE",
+      "value": 0.0,
+      "min": 0.0,
+      "max": 1.0
+    },
+    {
+      "name": "VoiceO",
+      "value": 0.0,
+      "min": 0.0,
+      "max": 1.0
+    },
+    {
+      "name": "VoiceSilence",
+      "value": 0.0,
+      "min": 0.0,
+      "max": 1.0
+    },
+    {
+      "name": "MouthX",
+      "value": 0.0,
+      "min": -1.0,
+      "max": 1.0
+    },
+    {
+      "name": "HandLeftFound",
+      "value": 0.0,
+      "min": 0.0,
+      "max": 1.0
+    },
+    {
+      "name": "HandRightFound",
+      "value": 0.0,
+      "min": 0.0,
+      "max": 1.0
+    },
+    {
+      "name": "BothHandsFound",
+      "value": 0.0,
+      "min": 0.0,
+      "max": 1.0
+    },
+    {
+      "name": "HandDistance",
+      "value": 0.0,
+      "min": 0.0,
+      "max": 10.0
+    },
+    {
+      "name": "HandLeftPositionX",
+      "value": 0.0,
+      "min": 0.0,
+      "max": 10.0
+    },
+    {
+      "name": "HandLeftPositionY",
+      "value": 0.0,
+      "min": -10.0,
+      "max": 10.0
+    },
+    {
+      "name": "HandLeftPositionZ",
+      "value": 0.0,
+      "min": -10.0,
+      "max": 10.0
+    },
+    {
+      "name": "HandRightPositionX",
+      "value": 0.0,
+      "min": 0.0,
+      "max": 10.0
+    },
+    {
+      "name": "HandRightPositionY",
+      "value": 0.0,
+      "min": -10.0,
+      "max": 10.0
+    },
+    {
+      "name": "HandRightPositionZ",
+      "value": 0.0,
+      "min": -10.0,
+      "max": 10.0
+    },
+    {
+      "name": "HandLeftAngleX",
+      "value": 0.0,
+      "min": -180.0,
+      "max": 180.0
+    },
+    {
+      "name": "HandLeftAngleZ",
+      "value": 0.0,
+      "min": -180.0,
+      "max": 180.0
+    },
+    {
+      "name": "HandRightAngleX",
+      "value": 0.0,
+      "min": -180.0,
+      "max": 180.0
+    },
+    {
+      "name": "HandRightAngleZ",
+      "value": 0.0,
+      "min": -180.0,
+      "max": 180.0
+    },
+    {
+      "name": "HandLeftOpen",
+      "value": 0.0,
+      "min": 0.0,
+      "max": 1.0
+    },
+    {
+      "name": "HandRightOpen",
+      "value": 0.0,
+      "min": 0.0,
+      "max": 1.0
+    },
+    {
+      "name": "HandLeftFinger_1_Thumb",
+      "value": 0.0,
+      "min": 0.0,
+      "max": 1.0
+    },
+    {
+      "name": "HandLeftFinger_2_Index",
+      "value": 0.0,
+      "min": 0.0,
+      "max": 1.0
+    },
+    {
+      "name": "HandLeftFinger_3_Middle",
+      "value": 0.0,
+      "min": 0.0,
+      "max": 1.0
+    },
+    {
+      "name": "HandLeftFinger_4_Ring",
+      "value": 0.0,
+      "min": 0.0,
+      "max": 1.0
+    },
+    {
+      "name": "HandLeftFinger_5_Pinky",
+      "value": 0.0,
+      "min": 0.0,
+      "max": 1.0
+    },
+    {
+      "name": "HandRightFinger_1_Thumb",
+      "value": 0.0,
+      "min": 0.0,
+      "max": 1.0
+    },
+    {
+      "name": "HandRightFinger_2_Index",
+      "value": 0.0,
+      "min": 0.0,
+      "max": 1.0
+    },
+    {
+      "name": "HandRightFinger_3_Middle",
+      "value": 0.0,
+      "min": 0.0,
+      "max": 1.0
+    },
+    {
+      "name": "HandRightFinger_4_Ring",
+      "value": 0.0,
+      "min": 0.0,
+      "max": 1.0
+    },
+    {
+      "name": "HandRightFinger_5_Pinky",
+      "value": 0.0,
+      "min": 0.0,
+      "max": 1.0
+    },
+    {
+      "name": "MocopiConnected",
+      "value": 0.0,
+      "min": 0.0,
+      "max": 1.0
+    },
+    {
+      "name": "MocopiHipAngleZ",
+      "value": 0.0,
+      "min": -30.0,
+      "max": 30.0
+    },
+    {
+      "name": "MocopiAngleX",
+      "value": -1.9514620304107666,
+      "min": -30.0,
+      "max": 30.0
+    },
+    {
+      "name": "MocopiAngleY",
+      "value": -0.7471321821212769,
+      "min": -30.0,
+      "max": 30.0
+    },
+    {
+      "name": "MocopiAngleZ",
+      "value": 0.5921991467475891,
+      "min": -30.0,
+      "max": 30.0
+    },
+    {
+      "name": "MocopiBodyAngleX",
+      "value": -0.19514620304107666,
+      "min": -10.0,
+      "max": 10.0
+    },
+    {
+      "name": "MocopiBodyAngleY",
+      "value": -0.07470370829105377,
+      "min": -10.0,
+      "max": 10.0
+    },
+    {
+      "name": "MocopiBodyAngleZ",
+      "value": 0.05922732129693031,
+      "min": -10.0,
+      "max": 10.0
+    },
+    {
+      "name": "MocopiBodyPositionX",
+      "value": 0.0,
+      "min": -1.0,
+      "max": 1.0
+    },
+    {
+      "name": "MocopiBodyPositionY",
+      "value": 0.0,
+      "min": -1.0,
+      "max": 1.0
+    },
+    {
+      "name": "MocopiBodyPositionZ",
+      "value": 0.0,
+      "min": -1.0,
+      "max": 1.0
+    },
+    {
+      "name": "MocopiUpperArmLeftAngleY",
+      "value": 0.0,
+      "min": -90.0,
+      "max": 90.0
+    },
+    {
+      "name": "MocopiUpperArmLeftAngleZ",
+      "value": 0.0,
+      "min": -180.0,
+      "max": 180.0
+    },
+    {
+      "name": "MocopiUpperArmRightAngleY",
+      "value": 0.0,
+      "min": -90.0,
+      "max": 90.0
+    },
+    {
+      "name": "MocopiUpperArmRightAngleZ",
+      "value": 0.0,
+      "min": -180.0,
+      "max": 180.0
+    },
+    {
+      "name": "MocopiLowerArmLeftAngleX",
+      "value": 0.0,
+      "min": -180.0,
+      "max": 180.0
+    },
+    {
+      "name": "MocopiLowerArmLeftAngleY",
+      "value": 0.0,
+      "min": -90.0,
+      "max": 90.0
+    },
+    {
+      "name": "MocopiLowerArmLeftAngleZ",
+      "value": 0.0,
+      "min": -180.0,
+      "max": 180.0
+    },
+    {
+      "name": "MocopiLowerArmRightAngleX",
+      "value": 0.0,
+      "min": -180.0,
+      "max": 180.0
+    },
+    {
+      "name": "MocopiLowerArmRightAngleY",
+      "value": 0.0,
+      "min": -90.0,
+      "max": 90.0
+    },
+    {
+      "name": "MocopiLowerArmRightAngleZ",
+      "value": 0.0,
+      "min": -180.0,
+      "max": 180.0
+    },
+    {
+      "name": "MocopiUpperLegLeftAngleY",
+      "value": 0.0,
+      "min": -30.0,
+      "max": 30.0
+    },
+    {
+      "name": "MocopiUpperLegLeftAngleZ",
+      "value": 0.0,
+      "min": -30.0,
+      "max": 30.0
+    },
+    {
+      "name": "MocopiUpperLegRightAngleY",
+      "value": 0.0,
+      "min": -30.0,
+      "max": 30.0
+    },
+    {
+      "name": "MocopiUpperLegRightAngleZ",
+      "value": 0.0,
+      "min": -30.0,
+      "max": 30.0
+    },
+    {
+      "name": "MocopiLowerLegLeftAngleY",
+      "value": 0.0,
+      "min": -30.0,
+      "max": 30.0
+    },
+    {
+      "name": "MocopiLowerLegLeftAngleZ",
+      "value": 0.0,
+      "min": -30.0,
+      "max": 30.0
+    },
+    {
+      "name": "MocopiLowerLegRightAngleY",
+      "value": 0.0,
+      "min": -30.0,
+      "max": 30.0
+    },
+    {
+      "name": "MocopiLowerLegRightAngleZ",
+      "value": 0.0,
+      "min": -30.0,
+      "max": 30.0
+    }
+  ],
+  "hotkeys": [
+    {
+      "name": "Ghost Happy",
+      "type": "ToggleExpression",
+      "description": "Toggles an expression",
+      "file": "Ghost.exp3.json",
+      "hotkeyID": "7769df40263b4feda7a5f38fe1aa5722",
+      "keyCombination": [],
+      "onScreenButtonID": 1
+    },
+    {
+      "name": "Ghost Nervous",
+      "type": "ToggleExpression",
+      "description": "Toggles an expression",
+      "file": "GhostChange.exp3.json",
+      "hotkeyID": "02aa8528cf7449b69c27c0990f6746bd",
+      "keyCombination": [],
+      "onScreenButtonID": 2
+    },
+    {
+      "name": "Sad",
+      "type": "ToggleExpression",
+      "description": "Toggles an expression",
+      "file": "SadLock.exp3.json",
+      "hotkeyID": "b584bb24b46e4ea69776c942175568fc",
+      "keyCombination": [],
+      "onScreenButtonID": 3
+    },
+    {
+      "name": "Smile",
+      "type": "ToggleExpression",
+      "description": "Toggles an expression",
+      "file": "SmileLock.exp3.json",
+      "hotkeyID": "581864fba5f34334bed92a8da903c51c",
+      "keyCombination": [],
+      "onScreenButtonID": 4
+    },
+    {
+      "name": "Angry",
+      "type": "ToggleExpression",
+      "description": "Toggles an expression",
+      "file": "Angry.exp3.json",
+      "hotkeyID": "0a588e22d98e46d38c4c227ab6993297",
+      "keyCombination": [],
+      "onScreenButtonID": 5
+    },
+    {
+      "name": "Shadow",
+      "type": "ToggleExpression",
+      "description": "Toggles an expression",
+      "file": "Shadow.exp3.json",
+      "hotkeyID": "c7def7e43d0b47ffae0a2ed0a9c80a17",
+      "keyCombination": [],
+      "onScreenButtonID": 6
+    },
+    {
+      "name": "Pupil Shrink",
+      "type": "ToggleExpression",
+      "description": "Toggles an expression",
+      "file": "PupilShrink.exp3.json",
+      "hotkeyID": "151457e6743844d98dcf3630952b6595",
+      "keyCombination": [],
+      "onScreenButtonID": 7
+    },
+    {
+      "name": "Eyeshine Off",
+      "type": "ToggleExpression",
+      "description": "Toggles an expression",
+      "file": "EyeshineOff.exp3.json",
+      "hotkeyID": "4624416fe6b44f0690ca839f78f9fcc7",
+      "keyCombination": [],
+      "onScreenButtonID": 8
+    }
+  ]
+}
