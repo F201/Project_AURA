@@ -1,45 +1,81 @@
 # AURA Voice Agent
 
-The Voice Agent is the "body" and "voice" of AURA, providing real-time audio interaction, speech-to-text, and visual emotional expression.
+LiveKit-based Python agent that handles the full voice pipeline: speech recognition, LLM inference, TTS synthesis, and avatar expression triggering.
 
-## 🚀 Overview
-The Voice Agent uses **LiveKit Agents** to manage low-latency voice streams. It features a custom local TTS engine based on Qwen3-TTS for expressive, high-speed speech without cloud costs.
+## Pipeline
 
-## 🎭 Emotional Engine & VTube Studio
-AURA can express her feelings visually through VTube Studio integration.
+```
+Microphone → LiveKit (WebRTC) → Deepgram STT → OpenRouter LLM → Qwen3-TTS → LiveKit → Browser
+                                                      ↓
+                                              Emotion tag parsing
+                                                      ↓
+                                        Avatar Bridge (data channel) → Live2D expressions
+```
 
-### Setup
-1. **Enable Integration**: Set `VTUBE_ENABLED=true` in your `.env`.
-2. **Authorize**: When AURA starts, VTube Studio will show a popup asking for permission. Click **Allow**. A `token.txt` will be saved locally (it is gitignored).
-3. **Hotkeys**: For the best experience, name your VTube Studio expressions exactly as follows:
-   - `Smile` (assigned to `happy`, `smile`)
-   - `Sad` (assigned to `sad`)
-   - `Angry` (assigned to `angry`)
-   - `Ghost Happy` (assigned to `ghost`)
-   - `Shadow`, `Pupil Shrink`, `Eyeshine Off` (assigned to specific effects)
+## Tech Stack
 
-### Emotion Recipes
-AURA automatically detects emotions from her own speech. You can also force specific looks using tags like `[happy, shadow]` in the system prompt.
-- **Pleading (Memelas)**: `[angry, sad]`
+| | |
+|-|-|
+| **Voice framework** | livekit-agents v1.3+ |
+| **STT** | Deepgram Nova-3 (multilingual) |
+| **LLM** | DeepSeek-V3 via OpenRouter |
+| **TTS** | Faster-Qwen3-TTS (local, 12 Hz codec, 24 kHz output) |
+| **VAD** | Silero |
+
+## TTS Notes
+
+`aura_tts.py` wraps Faster-Qwen3-TTS with:
+
+- **`max_new_tokens` budget** — computed from text length to prevent the model generating excess audio for short phrases (Japanese: ~4 chars/s, English: ~12 chars/s, 3× safety factor)
+- **Trailing silence trim** — `_trim_silence()` scans in 25 ms windows and discards audio after the last active speech window
+- **`repetition_penalty=1.15`** — reduces hallucination loops
+- **Serialized GPU inference** — `_gen_lock` prevents concurrent CUDA calls
+
+## Emotion Engine
+
+The LLM is prompted to prefix sentences with emotion tags, e.g. `[happy] Great question!`. `avatar_bridge.py` parses these tags and forwards expression names to the dashboard via a LiveKit data channel.
+
+Expression names and their Hu Tao model mappings:
+
+| Tag | Expression file |
+|-----|----------------|
+| `smile` | `SmileLock.exp3.json` |
+| `sad` | `SadLock.exp3.json` |
+| `angry` | `Angry.exp3.json` |
+| `ghost` | `Ghost.exp3.json` |
+| `ghost_nervous` | `GhostChange.exp3.json` |
+| `shadow` | `Shadow.exp3.json` |
+| `pupil_shrink` | `PupilShrink.exp3.json` |
+| `eyeshine_off` | `EyeshineOff.exp3.json` |
+
+Combo recipes:
 - **Shocked**: `[shadow, pupil_shrink, eyeshine_off]`
 - **Furious**: `[shadow, pupil_shrink, eyeshine_off, angry]`
-- **Restricted**: AURA is strictly forbidden from mixing positive emotions (`happy`) with scary effects (`shadow`) to maintain consistency.
+- **Pleading**: `[angry, sad]`
 
-## 🛠 Tech Stack
-- **Voice Pipeline**: LiveKit Agents
-- **STT**: Deepgram (Nova-3)
-- **LLM**: DeepSeek-V3 (via OpenRouter)
-- **TTS**: Faster-Qwen3-TTS (Local, 24kHz)
-- **VTube Interaction**: `pyvts` (WebSocket)
+## Configuration (`.env`)
 
-## ⚙️ Configuration (.env)
-- `VTUBE_ENABLED`: "true" or "false" (default: false)
-- `DEEPGRAM_API_KEY`: Required for speech recognition.
-- `OPENROUTER_API_KEY`: Required for the LLM.
-- `LIVEKIT_URL / API_KEY / API_SECRET`: Connection to your LiveKit server.
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `DEEPGRAM_API_KEY` | Yes | Speech recognition |
+| `OPENROUTER_API_KEY` | Yes | LLM inference |
+| `LIVEKIT_URL` | Yes | LiveKit server URL |
+| `LIVEKIT_API_KEY` | Yes | LiveKit credentials |
+| `LIVEKIT_API_SECRET` | Yes | LiveKit credentials |
+| `VTUBE_ENABLED` | No | `"true"` to enable VTube Studio integration (default: `"false"`) |
 
-## 🏃 Running the Agent
-1. **Install Conda**: Ensure you have Miniconda or Anaconda installed.
-2. **Create Environment**: `conda env create -f environment.yml`
-3. **Activate**: `conda activate aura`
-4. **Start**: `python agent.py dev`
+## Running
+
+```bash
+conda env create -f environment.yml
+conda activate aura
+python agent.py dev
+```
+
+Or use `start_aura.bat` from the project root to start all services together.
+
+## VTube Studio Integration (optional, disabled by default)
+
+Set `VTUBE_ENABLED=true` in `.env`. Ensure the VTube Studio WebSocket API is enabled on port 8001. On first connect, click **Allow** in VTube Studio — a `token.txt` will be saved locally (gitignored).
+
+For the best experience, name VTube Studio hotkeys to match the expression names in the table above.

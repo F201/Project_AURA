@@ -32,6 +32,27 @@ SAMPLE_RATE = 24000
 NUM_CHANNELS = 1
 
 
+def _trim_silence(audio: np.ndarray, threshold: float = 0.004,
+                  sample_rate: int = SAMPLE_RATE, tail_ms: int = 120) -> np.ndarray:
+    """Trim trailing silence from generated audio. Scans in 25 ms windows."""
+    window = sample_rate // 40
+    tail   = int(tail_ms * sample_rate / 1000)
+    n_win  = len(audio) // window
+    if n_win == 0:
+        return audio
+
+    rms = np.array([
+        np.sqrt(np.mean(audio[i * window:(i + 1) * window] ** 2))
+        for i in range(n_win)
+    ])
+    above = np.where(rms > threshold)[0]
+    if len(above) == 0:
+        return audio[:window]
+
+    end = min(int(above[-1]) * window + tail, len(audio))
+    return audio[:end]
+
+
 @dataclass
 class _TTSOptions:
     model_name: str
@@ -119,15 +140,22 @@ class AuraTTS(tts.TTS):
         NOTE: text should already be cleaned by format_for_tts before calling this."""
         if not text or not text.strip():
             return b""
-            
+
+        # Budget: Japanese ≈ 4 chars/s, English ≈ 12 chars/s. 3× safety, min 2 s.
+        chars_per_sec = 4.0 if language == "Japanese" else 12.0
+        max_new_tokens = max(24, int(len(text) / chars_per_sec * 3.0 * 12))
+
         with self._gen_lock:
             audio_np, sample_rate = self._model.generate_voice_clone(
                 text=text,
                 ref_audio=self._opts.ref_audio,
                 ref_text=self._opts.ref_text,
                 language=language,
+                max_new_tokens=max_new_tokens,
+                append_silence=False,
+                repetition_penalty=1.15,
             )
-            audio_data = audio_np[0]
+            audio_data = _trim_silence(audio_np[0])
 
             # Convert float32 -> int16 PCM bytes
             audio_int16 = (audio_data * 32767).clip(-32768, 32767).astype(np.int16)

@@ -15,6 +15,10 @@ export default function CallOverlay({ onClose }) {
     useEffect(() => {
         let cancelled = false
 
+        const ctx = new AudioContext()
+        audioCtxRef.current = ctx
+        ctx.resume().catch(() => {})
+
         const connect = async () => {
             try {
                 // Dynamically import to avoid bundling when not needed
@@ -37,26 +41,25 @@ export default function CallOverlay({ onClose }) {
                         el.id = 'aura-agent-audio'
                         document.body.appendChild(el)
 
-                        // Lip sync: RMS amplitude of the incoming audio waveform
-                        const ctx = new AudioContext()
-                        audioCtxRef.current = ctx
-                        ctx.resume()   // Chrome suspends AudioContext by default
-                        const src = ctx.createMediaElementSource(el)
                         const analyser = ctx.createAnalyser()
-                        analyser.fftSize = 1024
-                        analyser.smoothingTimeConstant = 0.7
+                        analyser.fftSize = 2048
+                        analyser.smoothingTimeConstant = 0.8
+                        const src = ctx.createMediaStreamSource(
+                            new MediaStream([track.mediaStreamTrack])
+                        )
                         src.connect(analyser)
-                        analyser.connect(ctx.destination)
                         analyserRef.current = analyser
+
                         const buf = new Float32Array(analyser.fftSize)
                         const tick = () => {
                             lipRafRef.current = requestAnimationFrame(tick)
                             analyser.getFloatTimeDomainData(buf)
-                            // RMS of waveform → 0–1 amplitude
                             let sum = 0
                             for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i]
                             const rms = Math.sqrt(sum / buf.length)
-                            avatarRef.current?.setMouthOpen(Math.min(1, rms * 6))
+                            avatarRef.current?.setMouthOpen(
+                                rms > 0.008 ? Math.min(0.55, rms * 10) : 0
+                            )
                         }
                         tick()
                     }

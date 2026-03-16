@@ -1,122 +1,151 @@
 # AURA System Architecture
 
-> **Purpose**: Technical documentation for LLMs and developers to understand AURA's hybrid architecture, data flow, and component interactions.
+> Technical reference for developers. Covers component interactions, data flow, and deployment modes.
 
 ## 1. High-Level Overview
 
-AURA is a **local-first, cloud-backed** virtual assistant that supports both native OS execution and containerized deployment via Docker.
+AURA is a **local-first, cloud-backed** AI companion. It supports both native execution (via `start_aura.bat`) and containerized deployment (via Docker Compose).
 
--   **Frontend**: React (Vite) Dashboard for Chat, Admin, and System Monitoring.
--   **Backend**: 
-    -   **AI Service**: FastAPI server for LLM orchestration (LangGraph) and Memory RAG (Supabase).
-    -   **Voice Agent**: LiveKit Worker (Python) for real-time voice interaction.
-    -   **Token Server**: Simple endpoint to issue LiveKit access tokens.
--   **Database**: Supabase (Postgres) for relational data, vectors (pgvector), and realtime subscriptions.
--   **Infrastructure**: 
-    -   **Option A (Zero-Docker)**: 4 concurrent terminal processes managed by `start_aura.bat`.
-    -   **Option B (Dockerized)**: Unified orchestration via `docker-compose.yml`.
+| Component | Role |
+|-----------|------|
+| **Dashboard** | React 19 + Vite frontend. Renders the Live2D avatar, handles voice calls via LiveKit WebRTC, provides chat and settings UI. |
+| **Voice Agent** | Python LiveKit worker. Runs the STT → LLM → TTS pipeline and forwards emotion tags to the avatar. |
+| **AI Service** | FastAPI service for RAG (document ingestion, semantic search) and chat history via Supabase. |
+| **Token Server** | Lightweight endpoint that issues LiveKit access tokens for the dashboard. |
 
 ## 2. Architecture Diagram
 
 ```mermaid
 graph LR
-    %% Nodes
     User([User / Microphone])
 
-    subgraph Local ["Integrated Environment (Local or Docker)"]
+    subgraph Local ["Local Services"]
         direction TB
-        Dash["Dashboard (Vite :5173)"]
-        AI["AI Service (FastAPI :8000)"]
-        Voice["Voice Agent (Python)"]
-        Token["Token Server (:8082)"]
+        Dash["Dashboard\n(Vite :5173)"]
+        AI["AI Service\n(FastAPI :8000)"]
+        Voice["Voice Agent\n(Python)"]
+        Token["Token Server\n(:8082)"]
     end
 
-    subgraph Cloud ["Cloud Services"]
+    subgraph Cloud ["Cloud / External"]
         direction TB
-        LiveKit["LiveKit Cloud (WebRTC)"]
-        Supabase[("Supabase Postgres/PGVector")]
-        
-        subgraph Models ["AI Models"]
-            OpenRouter["OpenRouter (LLM & Embeddings)"]
-            Cartesia_TTS["Cartesia TTS (Sonic-3)"]
-            Deepgram_STT["Deepgram STT (Nova-3)"]
-        end
+        LiveKit["LiveKit Cloud\n(WebRTC)"]
+        Supabase[("Supabase\nPostgres + pgvector")]
+        OpenRouter["OpenRouter\n(LLM)"]
+        Deepgram["Deepgram\n(STT Nova-3)"]
     end
 
-    %% User Interactions
+    subgraph Local_GPU ["Local GPU"]
+        Qwen3["Faster-Qwen3-TTS\n(12 Hz codec)"]
+    end
+
     User <--> Dash
-    User -- "Audio Stream" <--> LiveKit
-
-    %% Dashboard Flows
-    Dash -- "Get Token" --> Token
-    Dash -- "Text Chat" --> AI
-    Dash -- "Query/Sub" --> Supabase
-    Dash -- "WebRTC Connection" --> LiveKit
-    
-    %% Backend Flows
-    AI -- "RAG/Memory" --> Supabase
-    AI -- "Completion" --> OpenRouter
-
-    %% Voice Agent Flows
+    User -- "Audio stream" <--> LiveKit
+    Dash -- "Get token" --> Token
+    Dash -- "Text chat / RAG" --> AI
+    Dash -- "WebRTC" --> LiveKit
+    AI -- "Memory / vectors" --> Supabase
+    AI -- "LLM" --> OpenRouter
     LiveKit <--> Voice
-    Voice -- "STT" --> Deepgram_STT
+    Voice -- "STT" --> Deepgram
     Voice -- "LLM" --> OpenRouter
-    Voice -- "TTS" --> Cartesia_TTS
+    Voice -- "TTS" --> Qwen3
+    Voice -- "Expressions (data channel)" --> Dash
 ```
 
 ## 3. Component Details
 
-### 3.1 AI Service (`/ai-service`)
--   **Framework**: FastAPI
--   **Core Logic**: `LangGraph` for stateful conversation flow (`perceive` -> `recall` -> `generate`).
--   **Memory**: Uses `supabase-vec` (pgvector) to store/retrieve memory chunks. No longer requires local Qdrant.
--   **API**:
-    -   `POST /api/v1/chat`: Main chat endpoint (Text-to-Text).
-    -   `POST /api/v1/memory`: Ingest documents.
+### 3.1 Dashboard (`/dashboard`)
+
+- React 19 + Vite + TailwindCSS 4
+- **Avatar**: `AvatarRenderer.jsx` creates a PIXI Application, loads the Cubism 4 Live2D model via `pixi-live2d-display`, and monkey-patches `coreModel.update()` to inject idle animation parameters (head sway, blink FSM, eye saccades, breathing) every frame
+- **Lip sync**: `CallOverlay.jsx` uses `createMediaStreamSource` + `AnalyserNode` to compute RMS amplitude from the LiveKit audio track and drive `ParamMouthOpenY`
+- **Expressions**: received via LiveKit data channel from the voice agent; mapped to `.exp3.json` files on the Hu Tao model
+- **Voice**: `livekit-client` SDK handles all WebRTC signaling and media
+
+> pixi.js must remain at v6. pixi-live2d-display 0.4 is incompatible with pixi.js v7+.
 
 ### 3.2 Voice Agent (`/voice-agent`)
--   **Framework**: `livekit-agents` v1.3+
--   **Role**: Connects to a LiveKit Room as a specialized participant (Agent).
--   **Pipeline**:
-    1.  **VAD**: Silero VAD detects speech.
-    2.  **STT**: Deepgram (`nova-3`, multi-lingual) converts speech to text.
-    3.  **LLM**: OpenRouter (`deepseek-chat` or configured model) generates text.
-    4.  **TTS**: Cartesia (`sonic-3`) generates audio with high emotion and low latency.
--   **Key Feature**: Polyglot support (English, Indonesian, Japanese) and interruptibility.
 
-### 3.3 Dashboard (`/dashboard`)
--   **Framework**: React 18 + Vite + TailwindCSS.
--   **Voice UI**: Uses `livekit-client` SDK to join the voice room.
+- `livekit-agents` v1.3+, Silero VAD
+- STT: Deepgram Nova-3 (multilingual)
+- LLM: OpenRouter (DeepSeek-V3 by default)
+- TTS: `AuraTTS` class wrapping Faster-Qwen3-TTS locally
+  - `max_new_tokens` budget prevents runaway audio generation on short phrases
+  - Trailing silence trimmed by `_trim_silence()` after each synthesis
+- Emotion tags from LLM output (`[happy]`, `[sad]`, etc.) parsed and forwarded to the dashboard via LiveKit data channel
+
+### 3.3 AI Service (`/ai-service`)
+
+- FastAPI (Python)
+- RAG pipeline: document ingestion → embeddings → Supabase pgvector → semantic retrieval
+- Endpoints:
+  - `POST /api/v1/chat` — text chat with memory context
+  - `POST /api/v1/memory` — ingest documents
 
 ### 3.4 Data Schema (Supabase)
--   **`conversations`**: Metadata (id, title, user_id).
--   **`messages`**: Chat history (content, role, emotion, CreatedAt).
--   **`memories`**: Knowledge base (content, embedding, metadata).
--   **`personality_settings`**: System prompts, voice settings, emotional baselines.
 
-## 4. Environment Variables (`.env`)
+| Table | Purpose |
+|-------|---------|
+| `conversations` | Conversation metadata (id, title, user_id) |
+| `messages` | Chat history (content, role, emotion, created_at) |
+| `memories` | Knowledge base (content, embedding vector, metadata) |
+| `personality_settings` | System prompts, voice settings, emotional baselines |
 
-A single `.env` file in the project root is shared by all services.
+## 4. Environment Variables
 
-| Variable | Purpose |
-|----------|---------|
-| `CARTESIA_API_KEY` | Used for Cartesia TTS. |
-| `OPENROUTER_API_KEY` | Used for LLM Inference & Embeddings. |
-| `LIVEKIT_API_KEY` / `_SECRET` | Connection to LiveKit Cloud. |
-| `LIVEKIT_URL` | LiveKit Room Server URL. |
-| `DEEPGRAM_API_KEY` | Speech-to-Text. |
-| `SUPABASE_URL` / `_KEY` | Database & Vector connection. |
+A single `.env` in the project root is shared by all services.
+
+| Variable | Used by | Purpose |
+|----------|---------|---------|
+| `DEEPGRAM_API_KEY` | Voice Agent | Speech recognition |
+| `OPENROUTER_API_KEY` | Voice Agent, AI Service | LLM inference and embeddings |
+| `LIVEKIT_URL` | Voice Agent, Dashboard | LiveKit server |
+| `LIVEKIT_API_KEY` / `_SECRET` | Voice Agent, Token Server | LiveKit credentials |
+| `SUPABASE_URL` / `_KEY` | AI Service, Dashboard | Database and vectors |
+| `VTUBE_ENABLED` | Voice Agent | Enable VTube Studio integration (default: `false`) |
 
 ## 5. Execution Modes
 
-### 5.1 Native (Zero-Docker)
-1.  Run `.\start_aura.bat`.
-2.  Script manages local virtual environments and launches processes.
+### Native (Zero-Docker)
 
-### 5.2 Containerized (Docker)
-1.  Run `docker compose up --build`.
-2.  Orchestrates AI Service, Voice Agent, Token Server, and Dashboard.
+`start_aura.bat` (Windows) / `start_aura.sh` (Unix):
+1. Creates Python virtual environments for AI Service and Voice Agent
+2. Installs dependencies if needed
+3. Launches Token Server, Voice Agent, AI Service, and Dashboard as parallel processes
 
-## 6. Design Philosophy
-AURA prioritizes simplicity and performance. By offloading resource-heavy tasks (Database, STT, TTS) to optimized cloud providers, the core system remains lightweight enough to run on modest local hardware while providing a premium, low-latency experience.
+### Containerized (Docker)
 
+```bash
+docker compose up --build
+```
+
+Requires Docker Desktop and NVIDIA Container Toolkit for GPU-accelerated TTS.
+
+## 6. Avatar System
+
+The Live2D avatar is entirely browser-based — no external process is required.
+
+```
+Cubism 4 Core (WASM)          loaded via <script> in index.html
+pixi-live2d-display            imports Cubism 4 subpackage
+PIXI.Application               WebGL canvas, full-viewport
+Live2DModel.from(url)          loads .model3.json + textures + physics
+coreModel.update() patch       injects animation params before GPU commit
+AnalyserNode (Web Audio)       drives ParamMouthOpenY for lip sync
+LiveKit data channel           delivers expression names from voice agent
+```
+
+**Key Cubism 4 parameter IDs** (from `Hu Tao.cdi3.json`):
+
+| Parameter | Description |
+|-----------|-------------|
+| `ParamAngleX/Y/Z` | Head rotation |
+| `ParamBodyAngleX/Z` | Body sway |
+| `ParamBreath` | Breathing |
+| `ParamEyeLOpen` / `ParamEyeROpen` | Eye open/close |
+| `ParamEyeBallX` / `ParamEyeBallY` | Eye gaze direction |
+| `ParamMouthOpenY` | Mouth open (lip sync) |
+| `ParamMouthForm` | Mouth shape (smile/frown) |
+| `ParamBrowLForm` / `ParamBrowRForm` | Eyebrow shape |
+| `ParamEyeLSmile` / `ParamEyeRSmile` | Eye squint |
