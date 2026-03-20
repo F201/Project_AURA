@@ -253,15 +253,11 @@ async def voice_session(ctx: agents.JobContext):
     )
 
     # Greet with happy expression
-    # Greet the user natively
     vtube_connected = VTUBE.connected
     if vtube_connected:
         await VTUBE.set_expression("smile")
 
-    # Use a very simple instruction to prevent DeepSeek from leaking its system prompt
-    await session.generate_reply(
-        instructions="The user just joined. Greet them with a friendly 1-sentence welcome and introduce yourself as AURA."
-    )
+    await session.generate_reply()
 
 class AURAAssistant(Agent):
     def __init__(self) -> None:
@@ -275,8 +271,7 @@ class AURAAssistant(Agent):
     
     async def on_exit(self):
         """Called when agent ends"""
-        await VTUBE.disconnect()
-        BRIDGE.set_room(None)
+        logger.info("Agent session exited.")
     
     async def llm_chat(self, chat_ctx, **kwargs):
         """Override to detect emotion and trigger expressions"""

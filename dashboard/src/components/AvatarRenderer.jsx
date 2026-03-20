@@ -21,25 +21,31 @@ Live2DModel.registerTicker(PIXI.Ticker)
 // Model path relative to dashboard/public/
 const MODEL_URL = '/models/hutao/Hu Tao.model3.json'
 
-// Expression tag → .exp3.json filename
-// Source: voice-agent/model_parameters.json hotkeys + Hu_Tao__model_for_PC_/ directory
-const EXPRESSION_FILES = {
-  smile:        'SmileLock.exp3.json',
-  sad:          'SadLock.exp3.json',
-  angry:        'Angry.exp3.json',
-  ghost:        'Ghost.exp3.json',
-  ghost_nervous:'GhostChange.exp3.json',
-  shadow:       'Shadow.exp3.json',
-  pupil_shrink: 'PupilShrink.exp3.json',
-  eyeshine_off: 'EyeshineOff.exp3.json',
+/**
+ * Per-expression Cubism 4 parameter overrides.
+ * Applied smoothly every frame in coreModel.update() to flawlessly
+ * override the base idle animation values.
+ */
+const EXPRESSION_OVERRIDES = {
+  smile: { ParamMouthForm: 1.0, ParamEyeLSmile: 0.9, ParamEyeRSmile: 0.9, Param37: 0.4 },
+  sad: { ParamMouthForm: -1.0, ParamBrowLForm: -1.0, ParamBrowRForm: -1.0, ParamBrowLAngle: 0.75, ParamBrowRAngle: 0.75 },
+  angry: { ParamMouthForm: -0.5, ParamEyeRSmile: 0.0, ParamEyeLSmile: 0.0, ParamBrowLAngle: -1.0, ParamBrowRAngle: -1.0, ParamBrowRForm: -0.5, ParamBrowLForm: -0.5 },
+  ghost: { Param80: 1.0 },
+  ghost_nervous: { Param75: 1.0 },
+  shadow: { Param2: 1.0 },
+  pupil_shrink: { Param38: 1.0 },
+  eyeshine_off: { Param3: 1.0 },
+  wink: { ParamEyeLOpen: 0.0, ParamEyeLSmile: 1.0, ParamBrowLForm: 0.5, ParamMouthForm: 0.5 },
+  tongue: { Param70: 1.0, ParamMouthForm: -1.0 },  // Param70 = TongueOut mesh
 }
 
 export const AvatarRenderer = forwardRef(function AvatarRenderer(props, ref) {
   const { width = 400, height = 600 } = props
   const containerRef = useRef(null)
-  const modelRef     = useRef(null)
-  const appRef       = useRef(null)
-  const mouthOpenRef = useRef(0)   // driven by lip-sync from CallOverlay
+  const modelRef = useRef(null)
+  const appRef = useRef(null)
+  const mouthOpenRef = useRef(0)             // driven by lip-sync
+  const expressionOverrideRef = useRef(null)          // null = idle; {} = active override
 
   // ── Boot PIXI + load model ────────────────────────────────────────────────
   useEffect(() => {
@@ -73,46 +79,41 @@ export const AvatarRenderer = forwardRef(function AvatarRenderer(props, ref) {
       model.position.set(logicalW * 0.5, 0)
 
       // ── Idle animation ─────────────────────────────────────────────────────
-      // Patch coreModel.update() — the FINAL step before GPU commit.
-      // This runs AFTER the motion manager has set its keyframe values, so our
-      // params always overwrite whatever the motion manager tried to set.
-      // (Patching internalModel.update earlier didn't work because origUpdate
-      // runs the motion manager which overwrites our values before coreModel.update.)
       const core = model.internalModel.coreModel
       let lastMs = performance.now()
       const clamp = (v, lo, hi) => v < lo ? lo : v > hi ? hi : v
 
-      // ── Completely separate timers — blink and saccade never share state ──
+      // ── Completely separate timers ──
       let blinkTimer = 0, blinkPhase = 0, nextBlink = 2 + Math.random() * 4
       let saccadeTimer = 0, nextSaccade = 1 + Math.random() * 2
-      // Eye movement: lerp slowly to target — eliminates all twitching
       let eyeTargetX = 0, eyeTargetY = 0, eyeX = 0, eyeY = 0
 
-      // ── Mood: confirmed param IDs from Hu Tao.cdi3.json ──────────────────
-      // ParamMouthForm, ParamBrowLForm/RForm, Param37 (Brows Raise),
-      // ParamEyeLSmile/RSmile (eye squint) all exist in this model.
+      // ── Mood timers ──────────────────
       let moodTimer = 0, nextMoodChange = 3 + Math.random() * 4
-      let mouthFormT = 0,  mouthFormC = 0
-      let browFormT  = 0,  browFormC  = 0    // L/R brow curve (happy=up, frown=down)
-      let browRaiseT = 0,  browRaiseC = 0    // Param37: raise both brows
-      let eyeSmileT  = 0,  eyeSmileC  = 0    // eye squint when smiling
+      let mouthFormT = 0, mouthFormC = 0
+      let browFormT = 0, browFormC = 0    // L/R brow curve (happy=up, frown=down)
+      let browRaiseT = 0, browRaiseC = 0    // Param37: raise both brows
+      let eyeSmileT = 0, eyeSmileC = 0    // eye squint when smiling
 
       function pickMood() {
         const roll = Math.random()
         if (roll < 0.30) {                           // neutral
-          mouthFormT = 0;    browFormT = 0;    browRaiseT = 0;    eyeSmileT = 0
+          mouthFormT = 0; browFormT = 0; browRaiseT = 0; eyeSmileT = 0
         } else if (roll < 0.60) {                    // happy / cute smile
           mouthFormT = 0.55 + Math.random() * 0.35
-          browFormT  = 0.35; browRaiseT = 0.4; eyeSmileT = 0.45
+          browFormT = 0.35; browRaiseT = 0.4; eyeSmileT = 0.45
         } else if (roll < 0.80) {                    // thinking — look up
           mouthFormT = -0.1; browFormT = 0.1; browRaiseT = 0.2; eyeSmileT = 0
           eyeTargetY = 0.45 + Math.random() * 0.3   // deliberate upward glance
           nextSaccade = saccadeTimer + 2.8           // hold it
         } else {                                     // excited — big smile, raised brows
-          mouthFormT = 0.9;  browFormT = 0.5; browRaiseT = 0.7; eyeSmileT = 0.25
+          mouthFormT = 0.9; browFormT = 0.5; browRaiseT = 0.7; eyeSmileT = 0.25
         }
         nextMoodChange = 3 + Math.random() * 5
       }
+
+      // ── Expression Overrides State ─────────────────────────────────────────
+      const currentOverrides = {}
 
       const origCoreUpdate = core.update.bind(core)
       core.update = function () {
@@ -121,37 +122,37 @@ export const AvatarRenderer = forwardRef(function AvatarRenderer(props, ref) {
         lastMs = performance.now()
 
         // ── Head — more amplitude so turns are clearly visible ─────────────
-        core.setParameterValueById('ParamAngleX',     Math.sin(now * 0.31) * 12 + Math.sin(now * 0.73) * 3)
-        core.setParameterValueById('ParamAngleY',     Math.sin(now * 0.19) *  5 + Math.sin(now * 0.47) * 2)
-        core.setParameterValueById('ParamAngleZ',     Math.sin(now * 0.13) *  5 + Math.sin(now * 0.41) * 2)
-        core.setParameterValueById('ParamBodyAngleX', Math.sin(now * 0.28) *  4)
-        core.setParameterValueById('ParamBodyAngleZ', Math.sin(now * 0.21) *  3)
-        core.setParameterValueById('ParamBreath',     Math.sin(now * 0.9)  * 0.5 + 0.5)
+        core.setParameterValueById('ParamAngleX', Math.sin(now * 0.31) * 12 + Math.sin(now * 0.73) * 3)
+        core.setParameterValueById('ParamAngleY', Math.sin(now * 0.19) * 5 + Math.sin(now * 0.47) * 2)
+        core.setParameterValueById('ParamAngleZ', Math.sin(now * 0.13) * 5 + Math.sin(now * 0.41) * 2)
+        core.setParameterValueById('ParamBodyAngleX', Math.sin(now * 0.28) * 4)
+        core.setParameterValueById('ParamBodyAngleZ', Math.sin(now * 0.21) * 3)
+        core.setParameterValueById('ParamBreath', Math.sin(now * 0.9) * 0.5 + 0.5)
         core.setParameterValueById('ParamMouthOpenY', mouthOpenRef.current)
 
-        // ── Mood tick — fast lerp so changes are clearly visible ───────────
+        // ── Mood tick ───────────
         moodTimer += elapsed
         if (moodTimer >= nextMoodChange) { moodTimer = 0; pickMood() }
         const lm = elapsed * 4   // reach target in ~0.5s
         mouthFormC += (mouthFormT - mouthFormC) * lm
-        browFormC  += (browFormT  - browFormC)  * lm
+        browFormC += (browFormT - browFormC) * lm
         browRaiseC += (browRaiseT - browRaiseC) * lm
-        eyeSmileC  += (eyeSmileT  - eyeSmileC)  * lm
+        eyeSmileC += (eyeSmileT - eyeSmileC) * lm
         core.setParameterValueById('ParamMouthForm', mouthFormC)
         core.setParameterValueById('ParamBrowLForm', browFormC)
         core.setParameterValueById('ParamBrowRForm', browFormC)
-        core.setParameterValueById('Param37',        browRaiseC)  // Brows Raise
+        core.setParameterValueById('Param37', browRaiseC)  // Brows Raise
         core.setParameterValueById('ParamEyeLSmile', eyeSmileC)
         core.setParameterValueById('ParamEyeRSmile', eyeSmileC)
 
-        // ── Eye saccades — own timer, slow lerp (no twitching) ────────────
+        // ── Eye saccades ────────────
         saccadeTimer += elapsed
         if (saccadeTimer >= nextSaccade) {
           eyeTargetX = (Math.random() * 2 - 1) * 0.65
           const r = Math.random()
-          if      (r < 0.20) eyeTargetY =  0.5 + Math.random() * 0.35  // look up
+          if (r < 0.20) eyeTargetY = 0.5 + Math.random() * 0.35  // look up
           else if (r < 0.35) eyeTargetY = -0.3 - Math.random() * 0.25  // look down (shy)
-          else               eyeTargetY = (Math.random() * 2 - 1) * 0.4
+          else eyeTargetY = (Math.random() * 2 - 1) * 0.4
           nextSaccade = saccadeTimer + 1.5 + Math.random() * 2.5
         }
         // lerp speed 3.5 — eyes drift naturally, never snap or twitch
@@ -160,7 +161,7 @@ export const AvatarRenderer = forwardRef(function AvatarRenderer(props, ref) {
         core.setParameterValueById('ParamEyeBallX', clamp(eyeX, -1, 1))
         core.setParameterValueById('ParamEyeBallY', clamp(eyeY, -1, 1))
 
-        // ── Blink — own timer, stays within 0–1 always ────────────────────
+        // ── Blink ────────────────────
         blinkTimer += elapsed
         const bspd = 9
         if (blinkPhase === 0 && blinkTimer >= nextBlink) { blinkPhase = 1; blinkTimer = 0 }
@@ -177,6 +178,41 @@ export const AvatarRenderer = forwardRef(function AvatarRenderer(props, ref) {
         } else {
           core.setParameterValueById('ParamEyeLOpen', 1)
           core.setParameterValueById('ParamEyeROpen', 1)
+        }
+
+        // ── Expression overrides ─────────
+        const targetOv = expressionOverrideRef.current
+
+        const overrideKeys = new Set([...Object.keys(currentOverrides), ...(targetOv ? Object.keys(targetOv) : [])])
+        const lerpSpeed = elapsed * 5
+
+        for (const id of overrideKeys) {
+          let targetVal = 0
+          let isIdleParam = false
+
+          // Intercept parameters that the idle animation normally controls
+          if (id === 'ParamMouthForm') { isIdleParam = true; targetVal = mouthFormC; }
+          else if (id === 'ParamBrowLForm' || id === 'ParamBrowRForm') { isIdleParam = true; targetVal = browFormC; }
+          else if (id === 'Param37') { isIdleParam = true; targetVal = browRaiseC; }
+          else if (id === 'ParamEyeLSmile' || id === 'ParamEyeRSmile') { isIdleParam = true; targetVal = eyeSmileC; }
+          else if (id === 'ParamEyeLOpen' || id === 'ParamEyeROpen') { isIdleParam = true; targetVal = core.getParameterValueById(id); } // Read blink value right before overriding
+
+          if (targetOv && targetOv[id] !== undefined) {
+            targetVal = targetOv[id]
+          }
+
+          if (currentOverrides[id] === undefined) {
+            currentOverrides[id] = isIdleParam ? targetVal : 0;
+          }
+
+          currentOverrides[id] += (targetVal - currentOverrides[id]) * lerpSpeed
+          core.setParameterValueById(id, currentOverrides[id])
+        }
+
+        // Special condition: TongueOut needs minimum mouth open to be visible
+        if (currentOverrides['Param70'] > 0) {
+          const currentMouth = core.getParameterValueById('ParamMouthOpenY')
+          core.setParameterValueById('ParamMouthOpenY', Math.max(currentMouth, currentOverrides['Param70'] * 0.4))
         }
 
         origCoreUpdate()
@@ -209,29 +245,16 @@ export const AvatarRenderer = forwardRef(function AvatarRenderer(props, ref) {
       const model = modelRef.current
       if (!model) return
 
+      const merged = {}
       for (const name of names) {
-        const file = EXPRESSION_FILES[name]
-        if (file) {
-          model.expression(file)
-        }
-
-        // Parameter-based expressions (using actual Cubism 4 IDs from cdi3.json)
-        if (name === 'wink') {
-          const c = model.internalModel.coreModel
-          c.setParameterValueById('ParamEyeLOpen', 0.0)
-          c.setParameterValueById('ParamBrowLForm', -1.0)
-          c.setParameterValueById('ParamMouthForm', 1.0)
-        }
-        if (name === 'tongue') {
-          const c = model.internalModel.coreModel
-          c.setParameterValueById('ParamMouthOpenY', 1.0)
-          c.setParameterValueById('ParamMouthForm', -1.0)
-        }
+        // Merge param overrides — held every frame until reset
+        const overrides = EXPRESSION_OVERRIDES[name]
+        if (overrides) Object.assign(merged, overrides)
       }
+      expressionOverrideRef.current = Object.keys(merged).length > 0 ? merged : null
 
-      // Schedule auto-reset after the audio segment finishes
       setTimeout(() => {
-        modelRef.current?.expression()   // no-arg = reset to default
+        expressionOverrideRef.current = null
       }, duration * 1000)
     },
 
@@ -243,9 +266,8 @@ export const AvatarRenderer = forwardRef(function AvatarRenderer(props, ref) {
       modelRef.current?.internalModel.coreModel.setParameterValueById(name, value)
     },
 
-    /** Immediately reset to default idle expression. */
     resetNeutral() {
-      modelRef.current?.expression()
+      expressionOverrideRef.current = null
     },
 
     /**

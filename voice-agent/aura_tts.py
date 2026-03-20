@@ -231,17 +231,20 @@ class _AuraSynthesizeStream(tts.SynthesizeStream):
 
         async def _process_input():
             """Read text from the input channel and push to the tokenizer."""
+            full_llm_response = ""
             async for data in self._input_ch:
                 if isinstance(data, self._FlushSentinel):
                     token_stream.flush()
                 else:
                     # Replace Japanese sentence-ending punctuation with ASCII equivalents
-                    # so the SentenceTokenizer can split on them properly
                     text = data
+                    full_llm_response += text
                     text = text.replace('。', '. ')
                     text = text.replace('！', '! ')
                     text = text.replace('？', '? ')
                     token_stream.push_text(text)
+            
+            logger.info(f"\n====== FULL LLM RESPONSE ======\n{full_llm_response}\n===============================\n")
             token_stream.end_input()
 
         async def _synthesize():
@@ -262,8 +265,24 @@ class _AuraSynthesizeStream(tts.SynthesizeStream):
                 sentence = sentence.rstrip('-~～')
                 sentence = sentence.strip()
                 
-                # SAFETY: Skip if sentence contains NO alphanumeric characters (prevents runaway loops)
                 if not any(c.isalnum() for c in sentence):
+                    continue
+
+                _INSTRUCTION_STARTERS = (
+                    'your mood ', 'your task ', 'your objective ', 'your goal ',
+                    'use a ', 'use the ', 'use your ',
+                    'be open', 'be cheerful', 'be warm', 'be friendly', 'be mischievous',
+                    'ask them', 'ask what', 'ask how', 'ask if ', 'ask about',
+                    'then ask', 'then, ask', 'then invite',
+                    'you might ', 'you should ', 'you can also',
+                    'start by ', 'start with ',
+                    'remember to ', 'make sure ', 'keep in mind',
+                    'greet them', 'introduce yourself',
+                    'sprinkle in', 'hint that', 'suggest that',
+                    'invite conversation', 'invite them',
+                )
+                if any(sentence.lower().startswith(s) for s in _INSTRUCTION_STARTERS):
+                    logger.debug(f"Skipping instruction-like sentence: {sentence[:60]!r}")
                     continue
 
                 # Generate audio and calculate duration
@@ -287,9 +306,6 @@ class _AuraSynthesizeStream(tts.SynthesizeStream):
                         pcm_bytes = pcm_bytes[:max_bytes]
                         duration = MAX_SENTENCE_DURATION
 
-                    # Virtual Playhead syncing for TTS->VTube Expressions
-                    # LiveKit queues audio and plays it sequentially, but we generate it much faster than real-time.
-                    # If we trigger expressions immediately, they fall completely out-of-sync with the audio.
                     now = time.time()
                     if not hasattr(self, '_playhead') or self._playhead < now:
                         self._playhead = now
@@ -307,16 +323,17 @@ class _AuraSynthesizeStream(tts.SynthesizeStream):
                             if delay_start > 0:
                                 await asyncio.sleep(delay_start)
 
+                            linger_time = 1.2  # let emotion linger for 1.2s after speech ends
+                            total_dur = dur + linger_time
+
                             if em_list:
-                                # Fire both simultaneously — BRIDGE never waits for VTS's sleeps
                                 await asyncio.gather(
                                     VTUBE.set_expression(em_list),
-                                    BRIDGE.send_expression(em_list, dur),
+                                    BRIDGE.send_expression(em_list, total_dur),
                                 )
 
-                            await asyncio.sleep(dur + 0.3)  # grace period after audio
+                            await asyncio.sleep(total_dur)  # wait for audio + linger duration
 
-                            # Only clear to neutral if we are STILL the very last scheduled sentence
                             if getattr(self, '_reset_token', -1) == token:
                                 await asyncio.gather(
                                     VTUBE.reset_to_neutral(),
@@ -325,7 +342,6 @@ class _AuraSynthesizeStream(tts.SynthesizeStream):
                         except Exception as e:
                             logger.debug(f"VTS sync error (non-fatal): {e}")
 
-                    # Trigger emotions perfectly sequenced with actual audio playback!
                     asyncio.create_task(_sync_expression(emotions, delay_until_play, duration, current_token))
 
                     output_emitter.push(pcm_bytes)
