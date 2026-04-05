@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { AvatarRenderer } from './AvatarRenderer'
 
-function getOrCreateIdentity(){
+function getOrCreateIdentity() {
     const KEY = 'aura_user_identity'
     let id = localStorage.getItem(KEY)
 
-    if (!id){
-        id = `user-${crypto.randomUUID().slice(0,8)}`
+    if (!id) {
+        id = `user-${crypto.randomUUID().slice(0, 8)}`
         localStorage.setItem(KEY, id)
     }
 
@@ -16,12 +16,12 @@ function getOrCreateIdentity(){
 export default function CallOverlay({ onClose }) {
     const [status, setStatus] = useState('connecting')
     const [elapsed, setElapsed] = useState(0)
-    const roomRef    = useRef(null)
-    const timerRef   = useRef(null)
-    const avatarRef  = useRef(null)
+    const roomRef = useRef(null)
+    const timerRef = useRef(null)
+    const avatarRef = useRef(null)
     const audioCtxRef = useRef(null)
     const analyserRef = useRef(null)
-    const lipRafRef   = useRef(null)
+    const lipRafRef = useRef(null)
 
     // ─── Connect to LiveKit ──────────────────────
     useEffect(() => {
@@ -29,17 +29,17 @@ export default function CallOverlay({ onClose }) {
 
         const ctx = new AudioContext()
         audioCtxRef.current = ctx
-        ctx.resume().catch(() => {})
+        ctx.resume().catch(() => { })
 
         const connect = async () => {
             try {
                 // Dynamically import to avoid bundling when not needed
                 const { Room, RoomEvent, Track } = await import('livekit-client')
-                
+
                 const identity = getOrCreateIdentity()
 
                 // Fetch token from token server
-                const res = await fetch(`http://${window.location.hostname}:8082/getToken?room=aura-room&identity=${encodeURIComponent(identity)}`)
+                const res = await fetch(`http://${window.location.hostname}:8082/getToken?identity=${encodeURIComponent(identity)}`)
                 if (!res.ok) throw new Error(`Token server error: ${res.status}`)
                 const { token, url } = await res.json()
 
@@ -108,9 +108,13 @@ export default function CallOverlay({ onClose }) {
             }
         }
 
+        const handleUnload = () => { roomRef.current?.disconnect() }
+        window.addEventListener('beforeunload', handleUnload)
+
         connect()
         return () => {
             cancelled = true
+            window.removeEventListener('beforeunload', handleUnload)
             cleanup()
         }
     }, [])
@@ -151,8 +155,8 @@ export default function CallOverlay({ onClose }) {
 
                 <p className="text-primary/80 text-sm font-medium">
                     {status === 'connecting' && 'Connecting...'}
-                    {status === 'connected'  && formatTime(elapsed)}
-                    {status === 'error'      && 'Connection failed'}
+                    {status === 'connected' && formatTime(elapsed)}
+                    {status === 'error' && 'Connection failed'}
                 </p>
 
                 {/* Waveform */}

@@ -27,12 +27,8 @@ class VTubeController:
         self._connected_loop = None  # Track which event loop owns the VTS connection
         self._vts_lock = asyncio.Lock()  # Serialize all VTS API requests
         self.active_expressions = {}  # name -> hotkey_id, tracks which expressions are currently active
-        
-        if not self.is_enabled:
-            logger.info("VTube Studio integration is DISABLED via .env")
-            return
-        
-        # Expression mapping (matches hotkey names or filenames in VTube Studio)
+
+        # Always initialized — detect_emotion() uses these regardless of VTube being enabled
         self.expressions = {
             "sad": "Sad",
             "smile": "Smile",
@@ -43,7 +39,6 @@ class VTubeController:
             "eyeshine_off": "Eyeshine Off",
             "pupil_shrink": "Pupil Shrink",
             "neutral": None,
-            # Japanese Aliases
             "喜び": "Smile",
             "嬉しい": "Smile",
             "悲しい": "Sad",
@@ -53,44 +48,25 @@ class VTubeController:
             "緊張": "Ghost Nervous",
             "影": "Shadow",
             "瞳孔": "Pupil Shrink",
-            "wink": "EyeOpenLeft", # Default to left eye for winks
+            "wink": "EyeOpenLeft",
             "tongue": "TongueOut",
-            # Japanese Aliases for features
             "ウインク": "wink",
             "べー": "tongue"
         }
-        self.expression_hotkey_map = {}
-        
-        # Track raw parameter values to restore them later: parameter_name -> last_injected_value
-        self.injected_parameters = {}
-        
-        # Prevent repetitive animations (like double-winking) in a single turn
-        self.turn_animation_log = set() # tags triggered this turn
-        
-        # Mapping for reset logic: parameter -> trigger_feature
-        self.PARAM_TO_FEATURE = {
-            "EyeOpenLeft": "wink",
-            "EyeOpenRight": "wink",
-            "BrowLeftY": "wink",
-            "MouthSmile": "wink",
-            "TongueOut": "tongue",
-            "MouthOpen": "tongue"
-        }
-        
-        # Bilingual emotion keywords
+
         self.emotion_keywords = {
             "sad": [
                 # English
-                "sad", "sorry", "unfortunate", "regret", "miss", "lonely", "cry", 
-                "depressed", "upset", "unhappy", "miserable", "heartbroken",
+                "sad", "sadly", "sorry", "unfortunate", "regret", "miss", "lonely", "cry", "crying",
+                "depressed", "depressing", "upset", "unhappy", "miserable", "heartbroken",
                 # Japanese
                 "悲しい", "かなしい", "寂しい", "さびしい", "辛い", "つらい",
                 "残念", "ざんねん", "泣", "ない", "切ない", "せつない"
             ],
             "angry": [
                 # English
-                "angry", "mad", "annoyed", "frustrated", "hate", "stupid", "idiot", 
-                "dumb", "terrible", "furious", "irritated", "pissed",
+                "angry", "mad", "annoyed", "annoying", "frustrated", "frustrating", "hate", "hated", "stupid", "idiot", 
+                "dumb", "terrible", "furious", "irritated", "irritating", "pissed",
                 # Japanese
                 "怒", "おこ", "怒る", "おこる", "イライラ", "いらいら", "腹立つ",
                 "はらだつ", "馬鹿", "ばか", "嫌い", "きらい", "最悪", "さいあく",
@@ -98,9 +74,9 @@ class VTubeController:
             ],
             "smile": [
                 # English
-                "smile", "grin", "chuckle", "giggle", "teehee", "hehe", "haha",
+                "smile", "smiling", "grin", "grinning", "chuckle", "chuckling", "giggle", "giggling", "teehee", "hehe", "haha",
                 "happy", "glad", "great", "awesome", "wonderful", "love", "like", 
-                "enjoy", "fun", "yay", "excited", "joy", "cheerful", "delighted",
+                "enjoy", "fun", "yay", "excited", "exciting", "joy", "cheerful", "delighted",
                 # Japanese
                 "笑", "わら", "微笑む", "ほほえむ", "ニヤニヤ", "にやにや", "くすくす",
                 "あはは", "ふふふ",
@@ -109,18 +85,34 @@ class VTubeController:
             ],
             "ghost": [
                 # English
-                "ghost", "boo", "spooky", "scared", "afraid", "spirit", "haunted", "dead",
+                "ghost", "boo", "spooky", "scared", "scary", "afraid", "spirit", "haunted", "dead",
                 # Japanese
                 "幽霊", "ゆうれい", "お化け", "おばけ", "怖い", "こわい", "霊", "れい"
             ],
-            "ghost_nervous": ["nervous", "flustered", "caught", "embarrassed", "shook"],
+            "ghost_nervous": ["nervous", "flustered", "caught", "embarrassed", "embarrassing", "shook", "shocked"],
             "shadow": ["scary", "menacing", "dark", "evil", "shadow", "creepy"],
             "eyeshine_off": ["deadface", "disappointed", "uncool", "serious", "cold", "empty"],
-            "pupil_shrink": ["prank", "mischief", "cheeky", "teasing", "silly", "surprise"],
-            "wink": ["wink", "blink", "winked", "ウインク"],
+            "pupil_shrink": ["prank", "mischief", "cheeky", "teasing", "silly", "surprise", "surprised"],
+            "wink": ["wink", "blink", "winked", "winking", "ウインク"],
             "tongue": ["tongue", "bleh", "cheeky", "sticking out", "べー"]
         }
-    
+
+        if not self.is_enabled:
+            logger.info("VTube Studio integration is DISABLED via .env")
+            return
+
+        self.expression_hotkey_map = {}
+        self.injected_parameters = {}
+        self.turn_animation_log = set()
+        self.PARAM_TO_FEATURE = {
+            "EyeOpenLeft": "wink",
+            "EyeOpenRight": "wink",
+            "BrowLeftY": "wink",
+            "MouthSmile": "wink",
+            "TongueOut": "tongue",
+            "MouthOpen": "tongue"
+        }
+
     async def connect(self):
         """Connect to VTube Studio with robust re-authentication."""
         if not self.is_enabled:
@@ -329,14 +321,10 @@ class VTubeController:
             if expr in self.FEATURES and expr in self.turn_animation_log:
                 continue
 
-            # If the expression is ALREADY active, we want to pulse it (turn off, then back on)
-            # so that VTube Studio plays the trigger animation again rather than ignoring it 
-            # or turning it off permanently and leaving it off.
             if expr in self.active_expressions and self.active_expressions[expr] == hotkey_id:
-                # Force off
                 await self._trigger_hotkey(expr, hotkey_id, action="Toggled OFF to pulse")
                 del self.active_expressions[expr]
-                await asyncio.sleep(0.35) # Give the model a moment to snap out physically
+                await asyncio.sleep(0.35) 
                 
             success = await self._trigger_hotkey(expr, hotkey_id)
             if success:
@@ -366,8 +354,6 @@ class VTubeController:
                 recent_features.add("tongue")
                 self.turn_animation_log.add("tongue")
                 
-            # Yield substantially to prevent VTube Studio from dropping rapid combo inputs 
-            # and to allow Live2D parameters to transition smoothly.
             await asyncio.sleep(0.35)
 
     async def inject_parameter(self, parameter_name, value):
@@ -440,9 +426,6 @@ class VTubeController:
     
     def detect_emotion(self, text):
         """Bilingual detection: Looks for explicit tags [tag1, tag2] first, then falls back to keywords."""
-        if not self.is_enabled:
-            return []
-            
         text_lower = text.lower()
         
         # 1. Look for explicit tags in brackets [happy, pupil_shrink]

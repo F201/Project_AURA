@@ -247,21 +247,22 @@ class _AuraSynthesizeStream(tts.SynthesizeStream):
         async def _synthesize():
             """Read complete sentences from the tokenizer and synthesize."""
             nonlocal _pending_reset
-            
+            pushed_any = False
+
             async for ev in token_stream:
                 raw_sentence = ev.token
-                
+
                 # Detect if the sentence is primarily Japanese
                 has_japanese = any('\u3040' <= char <= '\u30ff' or '\u4e00' <= char <= '\u9fff' for char in raw_sentence)
                 lang = "Japanese" if has_japanese else "English"
 
                 # Clean sentence for TTS
                 sentence = VTUBE.format_for_tts(raw_sentence)
-                
+
                 # Strip trailing dashes and tildes that TTS speaks as "minus"
                 sentence = sentence.rstrip('-~～')
                 sentence = sentence.strip()
-                
+
                 if not any(c.isalnum() for c in sentence):
                     continue
 
@@ -342,8 +343,9 @@ class _AuraSynthesizeStream(tts.SynthesizeStream):
                     asyncio.create_task(_sync_expression(emotions, delay_until_play, duration, current_token))
 
                     output_emitter.push(pcm_bytes)
+                    pushed_any = True
                     logger.debug(f"Synthesized {duration:.2f}s audio for: {sentence} (Lang: {lang})")
-                    
+
                 except Exception as e:
                     logger.error(f"TTS generation failed for sentence '{sentence}': {e}")
                     import gc
@@ -353,6 +355,13 @@ class _AuraSynthesizeStream(tts.SynthesizeStream):
                     if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
                         torch.mps.empty_cache()
 
+            # Safety: if all sentences were filtered/skipped, push a short silence so
+            # LiveKit never sees zero audio frames (which raises APIError).
+            if not pushed_any:
+                logger.warning("All sentences filtered — pushing 1s silence to avoid APIError")
+                silence_frames = int(1.0 * SAMPLE_RATE)  # 1s of silence guarantees a frame is yielded
+                silence_bytes = (np.zeros(silence_frames, dtype=np.int16)).tobytes()
+                output_emitter.push(silence_bytes)
 
         # Run input processing and synthesis concurrently
         await asyncio.gather(_process_input(), _synthesize())
