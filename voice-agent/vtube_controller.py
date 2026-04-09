@@ -27,12 +27,8 @@ class VTubeController:
         self._connected_loop = None  # Track which event loop owns the VTS connection
         self._vts_lock = asyncio.Lock()  # Serialize all VTS API requests
         self.active_expressions = {}  # name -> hotkey_id, tracks which expressions are currently active
-        
-        if not self.is_enabled:
-            logger.info("VTube Studio integration is DISABLED via .env")
-            return
-        
-        # Expression mapping (matches hotkey names or filenames in VTube Studio)
+
+        # Expression mapping — always initialized so detect_emotion works even when VTube is disabled
         self.expressions = {
             "sad": "Sad",
             "smile": "Smile",
@@ -59,25 +55,8 @@ class VTubeController:
             "ウインク": "wink",
             "べー": "tongue"
         }
-        self.expression_hotkey_map = {}
-        
-        # Track raw parameter values to restore them later: parameter_name -> last_injected_value
-        self.injected_parameters = {}
-        
-        # Prevent repetitive animations (like double-winking) in a single turn
-        self.turn_animation_log = set() # tags triggered this turn
-        
-        # Mapping for reset logic: parameter -> trigger_feature
-        self.PARAM_TO_FEATURE = {
-            "EyeOpenLeft": "wink",
-            "EyeOpenRight": "wink",
-            "BrowLeftY": "wink",
-            "MouthSmile": "wink",
-            "TongueOut": "tongue",
-            "MouthOpen": "tongue"
-        }
-        
-        # Bilingual emotion keywords
+
+        # Bilingual emotion keywords — always initialized so detect_emotion works without VTube
         self.emotion_keywords = {
             "sad": [
                 # English
@@ -120,7 +99,29 @@ class VTubeController:
             "wink": ["wink", "blink", "winked", "ウインク"],
             "tongue": ["tongue", "bleh", "cheeky", "sticking out", "べー"]
         }
-    
+
+        if not self.is_enabled:
+            logger.info("VTube Studio integration is DISABLED via .env")
+            return
+
+        self.expression_hotkey_map = {}
+
+        # Track raw parameter values to restore them later: parameter_name -> last_injected_value
+        self.injected_parameters = {}
+
+        # Prevent repetitive animations (like double-winking) in a single turn
+        self.turn_animation_log = set()
+
+        # Mapping for reset logic: parameter -> trigger_feature
+        self.PARAM_TO_FEATURE = {
+            "EyeOpenLeft": "wink",
+            "EyeOpenRight": "wink",
+            "BrowLeftY": "wink",
+            "MouthSmile": "wink",
+            "TongueOut": "tongue",
+            "MouthOpen": "tongue"
+        }
+
     async def connect(self):
         """Connect to VTube Studio with robust re-authentication."""
         if not self.is_enabled:
@@ -440,9 +441,6 @@ class VTubeController:
     
     def detect_emotion(self, text):
         """Bilingual detection: Looks for explicit tags [tag1, tag2] first, then falls back to keywords."""
-        if not self.is_enabled:
-            return []
-            
         text_lower = text.lower()
         
         # 1. Look for explicit tags in brackets [happy, pupil_shrink]

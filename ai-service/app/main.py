@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.v1 import chat, health, memory, rag
+from app.api.v1 import settings as settings_router
 from app.core.config import settings
 import logging
 
@@ -31,6 +32,7 @@ app.include_router(health.router, prefix="/api/v1/health", tags=["Health"])
 app.include_router(chat.router, prefix="/api/v1/chat", tags=["Chat"])
 app.include_router(memory.router, prefix="/api/v1/memory", tags=["Memory"])
 app.include_router(rag.router, prefix="/api/v1/rag", tags=["RAG"])
+app.include_router(settings_router.router, prefix="/api/v1/settings", tags=["Settings"])
 
 @app.get("/")
 def read_root():

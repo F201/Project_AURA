@@ -19,9 +19,10 @@ export default function CallOverlay({ onClose }) {
     const roomRef    = useRef(null)
     const timerRef   = useRef(null)
     const avatarRef  = useRef(null)
-    const audioCtxRef = useRef(null)
-    const analyserRef = useRef(null)
-    const lipRafRef   = useRef(null)
+    const audioCtxRef      = useRef(null)
+    const analyserRef      = useRef(null)
+    const lipRafRef        = useRef(null)
+    const speakTimeoutRef  = useRef(null)
 
     // ─── Connect to LiveKit ──────────────────────
     useEffect(() => {
@@ -71,9 +72,23 @@ export default function CallOverlay({ onClose }) {
                             let sum = 0
                             for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i]
                             const rms = Math.sqrt(sum / buf.length)
-                            avatarRef.current?.setMouthOpen(
-                                rms > 0.008 ? Math.min(0.55, rms * 10) : 0
-                            )
+                            const active = rms > 0.008
+                            avatarRef.current?.setMouthOpen(active ? Math.min(0.55, rms * 10) : 0)
+
+                            // Transition to speaking state immediately on audio;
+                            // debounce the return to idle so brief pauses don't flicker.
+                            if (active) {
+                                if (speakTimeoutRef.current) {
+                                    clearTimeout(speakTimeoutRef.current)
+                                    speakTimeoutRef.current = null
+                                }
+                                avatarRef.current?.setSpeaking(true)
+                            } else if (!speakTimeoutRef.current) {
+                                speakTimeoutRef.current = setTimeout(() => {
+                                    avatarRef.current?.setSpeaking(false)
+                                    speakTimeoutRef.current = null
+                                }, 600)
+                            }
                         }
                         tick()
                     }
@@ -118,6 +133,7 @@ export default function CallOverlay({ onClose }) {
     const cleanup = useCallback(() => {
         if (timerRef.current) clearInterval(timerRef.current)
         if (lipRafRef.current) cancelAnimationFrame(lipRafRef.current)
+        if (speakTimeoutRef.current) { clearTimeout(speakTimeoutRef.current); speakTimeoutRef.current = null }
         if (audioCtxRef.current) { audioCtxRef.current.close(); audioCtxRef.current = null }
         if (roomRef.current) {
             roomRef.current.disconnect()

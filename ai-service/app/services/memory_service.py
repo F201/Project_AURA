@@ -4,16 +4,27 @@ Replaces the previous Qdrant-based implementation — zero Docker containers nee
 """
 from __future__ import annotations
 from typing import List
+import urllib.request
 from supabase import create_client
 from langchain_openai import OpenAIEmbeddings
 from app.core.config import settings
 from uuid import UUID
+
 
 from app.models.database import (Conversation, CreateConversation, Message, CreateMesssage, Memory, CreateMemory)
 
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def _ollama_is_running(base_url: str) -> bool:
+    """Return True if an Ollama server is reachable at base_url."""
+    try:
+        urllib.request.urlopen(f"{base_url}/api/tags", timeout=2)
+        return True
+    except Exception:
+        return False
 
 class MemoryService:
     def __init__(self):
@@ -27,16 +38,33 @@ class MemoryService:
         else:
             logger.warning("Supabase credentials not set. Memory service disabled.")
 
-        # Initialize embeddings model via OpenRouter
-        api_key = settings.OPENROUTER_API_KEY
-        if api_key:
+        # Initialize embeddings — try providers in order of preference
+        if settings.OPENAI_API_KEY:
             self.embeddings = OpenAIEmbeddings(
-                api_key=api_key,
-                model="openai/text-embedding-3-small",
-                base_url="https://openrouter.ai/api/v1"
+                api_key=settings.OPENAI_API_KEY,
+                model="text-embedding-3-small",
             )
+            logger.info("Embeddings: using OpenAI directly.")
+        elif settings.OPENROUTER_API_KEY:
+            self.embeddings = OpenAIEmbeddings(
+                api_key=settings.OPENROUTER_API_KEY,
+                model="openai/text-embedding-3-small",
+                base_url="https://openrouter.ai/api/v1",
+            )
+            logger.info("Embeddings: using OpenRouter.")
+        elif _ollama_is_running(settings.OLLAMA_BASE_URL):
+            self.embeddings = OpenAIEmbeddings(
+                api_key="ollama",
+                model="nomic-embed-text",
+                base_url=f"{settings.OLLAMA_BASE_URL}/v1",
+            )
+            logger.info("Embeddings: using local Ollama (nomic-embed-text).")
         else:
-            logger.warning("OPENROUTER_API_KEY not set. Memory embedding disabled.")
+            logger.warning(
+                "No embedding provider available "
+                "(OPENAI_API_KEY / OPENROUTER_API_KEY not set; Ollama not reachable). "
+                "Memory store/search disabled."
+            )
 
     async def create_conversation(self, title: str = "New Conversation") -> UUID | None:
         if not self.client:
