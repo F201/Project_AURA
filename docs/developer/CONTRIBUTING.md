@@ -23,7 +23,10 @@ Branches must be named clearly and consistently corresponding to their component
 ---
 
 ## 💻 Local Development
-For detailed local setup instructions, component architecture, and API documentation, please visit our documentation website or view the markdown files located in `docs/developer/`.
+If you are planning to hack on AURA, please review the local setup guides for each decoupled module:
+- [Frontend Dashboard Guide](FRONTEND.md)
+- [Python Voice Agent Guide](VOICE_AGENT.md)
+- [FastAPI AI Service Guide](AI_SERVICE.md)
 
 ---
 

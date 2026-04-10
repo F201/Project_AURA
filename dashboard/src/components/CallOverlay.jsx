@@ -104,9 +104,13 @@ export default function CallOverlay({ onClose, conversationId }) {
             }
         }
 
+        const handleUnload = () => { roomRef.current?.disconnect() }
+        window.addEventListener('beforeunload', handleUnload)
+
         connect()
         return () => {
             cancelled = true
+            window.removeEventListener('beforeunload', handleUnload)
             cleanup()
         }
     }, [conversationId])

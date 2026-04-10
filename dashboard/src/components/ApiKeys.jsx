@@ -7,9 +7,9 @@ const KEY_GROUPS = [
         icon: 'psychology',
         fields: [
             { key: 'openrouter_api_key', label: 'OpenRouter API Key', placeholder: 'sk-or-v1-...', hint: 'Routes to DeepSeek, GPT, Mistral, and more' },
-            { key: 'anthropic_api_key',  label: 'Anthropic API Key',  placeholder: 'sk-ant-...',   hint: 'Required for claude-* models' },
-            { key: 'groq_api_key',       label: 'Groq API Key',       placeholder: 'gsk_...',       hint: 'Fast inference for Llama / Mixtral' },
-            { key: 'ollama_base_url',    label: 'Ollama Base URL',    placeholder: 'http://localhost:11434', hint: 'Local LLMs via Ollama', isUrl: true },
+            { key: 'anthropic_api_key', label: 'Anthropic API Key', placeholder: 'sk-ant-...', hint: 'Required for claude-* models' },
+            { key: 'groq_api_key', label: 'Groq API Key', placeholder: 'gsk_...', hint: 'Fast inference for Llama / Mixtral' },
+            { key: 'ollama_base_url', label: 'Ollama Base URL', placeholder: 'http://localhost:11434', hint: 'Local LLMs via Ollama', isUrl: true },
         ],
     },
     {
@@ -25,25 +25,25 @@ const KEY_GROUPS = [
         icon: 'cell_tower',
         note: 'Requires agent restart',
         fields: [
-            { key: 'livekit_url',        label: 'LiveKit URL',        placeholder: 'wss://your-project.livekit.cloud' },
-            { key: 'livekit_api_key',    label: 'LiveKit API Key',    placeholder: 'API key' },
+            { key: 'livekit_url', label: 'LiveKit URL', placeholder: 'wss://your-project.livekit.cloud' },
+            { key: 'livekit_api_key', label: 'LiveKit API Key', placeholder: 'API key' },
             { key: 'livekit_api_secret', label: 'LiveKit API Secret', placeholder: 'API secret' },
         ],
     },
 ]
 
 export default function ApiKeys() {
-    const [draft, setDraft]       = useState({})
-    const [visible, setVisible]   = useState({})
+    const [draft, setDraft] = useState({})
+    const [visible, setVisible] = useState({})
     const [saveState, setSaveState] = useState('idle')
-    const [loaded, setLoaded]     = useState(false)
+    const [loaded, setLoaded] = useState(false)
 
     useEffect(() => {
         supabase.from('api_keys').select('*').eq('id', 1).single()
             .then(({ data }) => { if (data) setDraft(data); setLoaded(true) })
     }, [])
 
-    const patch       = (key, value) => setDraft(d => ({ ...d, [key]: value }))
+    const patch = (key, value) => setDraft(d => ({ ...d, [key]: value }))
     const toggleVisible = key => setVisible(v => ({ ...v, [key]: !v[key] }))
 
     const saveKeys = async () => {
@@ -64,10 +64,10 @@ export default function ApiKeys() {
     }
 
     const btn = {
-        idle:   { label: 'Save API Keys', icon: 'key',           cls: 'bg-primary hover:bg-primary/90 shadow-primary/20' },
-        saving: { label: 'Saving...',      icon: 'hourglass_top', cls: 'bg-primary/70 cursor-not-allowed' },
-        saved:  { label: 'Keys Saved!',    icon: 'check_circle',  cls: 'bg-emerald-500 shadow-emerald-200' },
-        error:  { label: 'Save Failed',    icon: 'error',         cls: 'bg-red-500 shadow-red-200' },
+        idle: { label: 'Save API Keys', icon: 'key', cls: 'bg-primary hover:bg-primary/90 shadow-primary/20' },
+        saving: { label: 'Saving...', icon: 'hourglass_top', cls: 'bg-primary/70 cursor-not-allowed' },
+        saved: { label: 'Keys Saved!', icon: 'check_circle', cls: 'bg-emerald-500 shadow-emerald-200' },
+        error: { label: 'Save Failed', icon: 'error', cls: 'bg-red-500 shadow-red-200' },
     }[saveState]
 
     return (

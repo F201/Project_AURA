@@ -12,14 +12,19 @@ logger = logging.getLogger("aura")
 logger.setLevel(logging.INFO)
 
 # get database connection
-def get_client() -> Client:
+def get_client() -> Client | None:
     url = os.getenv("SUPABASE_URL")
     key = os.getenv("SUPABASE_SERVICE_KEY")
 
     if not url or not key:
-        logger.error("Memory Service url or key not found")
+        logger.warning("Memory Service URL or Service Key not found in environment")
+        return None
 
-    return create_client(url, key)
+    try:
+        return create_client(url, key)
+    except Exception as e:
+        logger.error(f"Failed to create Supabase client: {e}")
+        return None
 
 class MemoryService:
     def __init__(self):

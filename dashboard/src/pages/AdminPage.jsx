@@ -27,7 +27,10 @@ export default function AdminPage() {
             .select('*')
             .eq('id', 1)
             .single()
-        if (data) setSettings(data)
+        if (data) {
+            setSettings(data)
+            pendingRef.current = data
+        }
     }
 
     const loadApiKeys = async () => {

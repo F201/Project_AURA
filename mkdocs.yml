@@ -1,0 +1,59 @@
+site_name: Project AURA
+site_description: Documentation for AURA - Advanced Universal Responsive Avatar
+theme:
+  name: material
+  palette:
+    # Palette toggle for true black/light mode
+    - scheme: default
+      primary: cyan
+      accent: deep purple
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: cyan
+      accent: deep purple
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - toc.integrate
+    - search.suggest
+
+nav:
+  - Welcome: "index.md"
+  - Getting Started:
+    - Installation: "getting-started/INSTALLATION.md"
+    - Configuration: "getting-started/CONFIGURATION.md"
+    - Usage: "getting-started/USAGE.md"
+  - Architecture:
+    - Avatar Setup: "architecture/AVATAR_SYSTEM.md"
+    - Voice Pipeline: "architecture/VOICE_PIPELINE.md"
+    - Memory & RAG: "architecture/AI_MEMORY.md"
+  - Developer Guide:
+    - Contribution Flow: "developer/CONTRIBUTING.md"
+    - Frontend Hacking: "developer/FRONTEND.md"
+    - Voice Agent Hacking: "developer/VOICE_AGENT.md"
+    - AI Service Hacking: "developer/AI_SERVICE.md"
+    - Customization: "developer/CUSTOMIZATION.md"
+    - API Reference: "developer/API_REFERENCE.md"
+    - Component Map: "developer/INDEX.md"
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.tabbed:
+      alternate_style: true

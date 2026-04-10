@@ -250,12 +250,15 @@ class _AuraSynthesizeStream(tts.SynthesizeStream):
 
         async def _process_input():
             """Read text from the input channel and push to the tokenizer."""
+            full_llm_response = ""
             async for data in self._input_ch:
                 if isinstance(data, self._FlushSentinel):
                     token_stream.flush()
                 else:
                     text = data.replace('。', '. ').replace('！', '! ').replace('？', '? ')
                     token_stream.push_text(text)
+            
+            logger.info(f"\n====== FULL LLM RESPONSE ======\n{full_llm_response}\n===============================\n")
             token_stream.end_input()
 
         async def _synthesize():

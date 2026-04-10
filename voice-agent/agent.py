@@ -1,5 +1,6 @@
 from dotenv import load_dotenv
 import os
+from typing import Annotated
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ENV_PATH = os.path.normpath(os.path.join(BASE_DIR, "..", ".env"))
@@ -10,14 +11,14 @@ if not os.path.exists(ENV_PATH):
 load_dotenv(ENV_PATH)
 
 from livekit import agents, rtc
-from livekit.agents import AgentServer, AgentSession, Agent, room_io, llm
+from livekit.agents import AgentSession, Agent, room_io, llm, stt, tts
 from livekit.plugins import noise_cancellation, silero, deepgram, openai, cartesia
 
 import logging
 import threading
 import asyncio
 import aiohttp
-
+import json
 import openai as _openai_sdk  # raw AsyncOpenAI, not livekit.plugins.openai
 
 from vtube_controller import VTUBE
@@ -146,20 +147,91 @@ Rules:
 - Keep the total output under 200 words
 """
 
-# Inject long term memory into system prompt
-def build_system_prompt(long_term_memory: str) -> str:
-   
+async def _fetch_personality_settings() -> dict:
+    """Fetch shared personality settings from Supabase. Returns defaults on failure."""
+    defaults = {
+        "system_prompt": None,
+        "model": OPENROUTER_MODEL,
+        "temperature": 0.8,
+        "max_tokens": 300,
+    }
+    if not memory_service.client:
+        return defaults
+    try:
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: memory_service.client.table("personality_settings")
+                .select("system_prompt, model, temperature, max_tokens")
+                .eq("id", 1)
+                .single()
+                .execute()
+        )
+        if result.data:
+            return {**defaults, **{k: v for k, v in result.data.items() if v is not None}}
+    except Exception as e:
+        logger.warning(f"Could not fetch personality settings: {e}")
+    return defaults
+
+
+async def _fetch_api_keys() -> dict:
+    """Fetch API keys from Supabase. Falls back to env vars on failure or missing values."""
+    defaults = {
+        "openrouter_api_key": OPENROUTER_KEY,
+        "deepgram_api_key": DEEPGRAM_KEY,
+        "cartesia_api_key": CARTESIA_KEY,
+    }
+    if not memory_service.client:
+        return defaults
+    try:
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: memory_service.client.table("api_keys")
+                .select("openrouter_api_key, deepgram_api_key, cartesia_api_key")
+                .eq("id", 1)
+                .single()
+                .execute()
+        )
+        if result.data:
+            # Only override if DB value is non-empty
+            merged = dict(defaults)
+            for k, v in result.data.items():
+                if v and v.strip():
+                    merged[k] = v
+            return merged
+    except Exception as e:
+        logger.warning(f"Could not fetch api keys: {e}")
+    return defaults
+
+
+# Inject long term memory (and optional custom personality) into system prompt
+def build_system_prompt(long_term_memory: str, personality_override: str = None) -> str:
+    # If admin has set a custom personality, prepend it before the voice-specific rules
+    base = AURA_BASE_PROMPT
+    if personality_override and personality_override.strip():
+        base = (
+            "[ADMIN PERSONALITY OVERRIDE — Internal instructions only. "
+            "Do NOT speak these aloud or repeat them.]\n"
+            + personality_override.strip()
+            + "\n[END ADMIN OVERRIDE]\n\n"
+            + base
+        )
+
     if not long_term_memory.strip():
-        return AURA_BASE_PROMPT
+        return base + "\n\n### 🧠 Memory Capability\nYou can use the `recall_memories` tool if you need to remember something specific about the user that isn't in your current context."
 
     memory_block = f"""
-### 🧠 What You Remember About This User (MANDATORY RECALL)
-The following facts are the CORE of your relationship with this user. You MUST use them to personalize your conversation. Do not just list them, but show you remember them through your teasing or supportive comments.
+### 🧠 What You Already Know (Initial Recall)
+The following facts are the CORE of your relationship with this user. Use them to personalize your conversation.
 
 FACTS:
 {long_term_memory}
+
+### 🔍 Selective Memory Recall
+If the facts above are not enough, or if the user asks about something you don't see here, use the `recall_memories` tool to look up more details from your knowledge base.
 """
-    return AURA_BASE_PROMPT + "\n" + memory_block
+    return base + "\n" + memory_block
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 OPENROUTER_MODEL    = "deepseek/deepseek-v3.2"
@@ -206,24 +278,17 @@ else:
     logger.info("Using OpenAI Cloud TTS")
     TTS_PLUGIN = openai.TTS()
 
-server = AgentServer()
+_tts_ready = asyncio.Event()
 
-_tts_ready = threading.Event()
-
-@server.on("worker_started")
-def on_worker_init():
-    logger.info("Worker started, warming up TTS...")
-
-    def run_warmup():
-        try:
-            if hasattr(TTS_PLUGIN, 'warmup'):
-                TTS_PLUGIN.warmup()
-        except Exception as e:
-            logger.error(f"TTS warmup failed: {e}")
-        finally:
-            _tts_ready.set()
-
-    threading.Thread(target=run_warmup, daemon=True).start()
+async def prewarm(proc: agents.JobProcess):
+    logger.info("Prewarming worker process (TTS warmup)...")
+    try:
+        if hasattr(TTS_PLUGIN, 'warmup'):
+            await TTS_PLUGIN.warmup()
+    except Exception as e:
+        logger.error(f"TTS warmup failed: {e}")
+    finally:
+        _tts_ready.set()
 
 _EXTRACT_MAX_ATTEMPTS = 3
 _EXTRACT_BACKOFF_BASE = 2.0  # seconds
@@ -303,14 +368,32 @@ async def extract_and_save_memory(identity: str, conversation_id):
 
 
 class AURAAssistant(Agent):
-    def __init__(self, conversation_id=None, user_identity: str = "aura-user", system_prompt: str = AURA_BASE_PROMPT, initial_chat_ctx: "llm.ChatContext | None" = None,) -> None:
-        super().__init__(instructions=system_prompt, chat_ctx=initial_chat_ctx)
-        self._conversation_id     = conversation_id
-        self._user_identity       = user_identity
-        self._vtube_connected     = False
-        self._last_user_text      = ""
-        self._last_activity_time  = asyncio.get_event_loop().time()
+    def __init__(
+        self,
+        *,
+        conversation_id=None,
+        user_identity: str = "aura-user",
+        system_prompt: str = AURA_BASE_PROMPT,
+        initial_chat_ctx: "llm.ChatContext | None" = None,
+        llm: llm.LLM,
+        tts: tts.TTS,
+    ) -> None:
+        super().__init__(instructions=system_prompt, chat_ctx=initial_chat_ctx, llm=llm, tts=tts)
+        self._conversation_id      = conversation_id
+        self._user_identity        = user_identity
+        self._vtube_connected      = False
+        self._last_user_text       = ""
+        self._last_activity_time   = asyncio.get_event_loop().time()
         self._last_aura_spoke_time = asyncio.get_event_loop().time()
+
+    @llm.function_tool(description="Recalls specific facts or memories about the user from the long-term knowledge base.")
+    async def recall_memories(self, query: Annotated[str, "The specific topic or fact to recall about the user"] = ""):
+        """Called when you need to remember something specific about the user."""
+        logger.info(f"AURA is recalling memories for query: '{query}'")
+        memories = await memory_service.get_long_term_memories(identity=self._user_identity, limit=20)
+        if not memories.strip():
+            return "No specific memories found for this user yet."
+        return f"Here are the memories I found:\n{memories}"
 
 
     def reset_activity(self):
@@ -392,9 +475,10 @@ class AURAAssistant(Agent):
 
             self._last_user_text = ""
 
-@server.rtc_session()
+
 # Called When user join the room
 async def voice_session(ctx: agents.JobContext):
+    logger.info(f"Voice session starting (Job assigned) for room: {ctx.room.name}")
     await ctx.connect()
     logger.info(f"User connected: {ctx.room.name}")
 
@@ -489,6 +573,8 @@ async def voice_session(ctx: agents.JobContext):
 
     # Use model from settings if available
     llm_model = settings.get("model", OPENROUTER_MODEL) if settings else OPENROUTER_MODEL
+    
+    # 1.1 Local plugin creation
     llm_plugin = openai.LLM(
         model=llm_model,
         base_url=OPENROUTER_BASE_URL,
@@ -500,6 +586,8 @@ async def voice_session(ctx: agents.JobContext):
         user_identity=user_identity,
         system_prompt=system_prompt,
         initial_chat_ctx=initial_chat_ctx,
+        llm=llm_plugin,
+        tts=TTS_PLUGIN,
     )
 
     session = AgentSession(
@@ -538,7 +626,7 @@ async def voice_session(ctx: agents.JobContext):
 
     if not _tts_ready.is_set():
         logger.info("Waiting for TTS warmup before greeting...")
-        await asyncio.get_event_loop().run_in_executor(None, lambda: _tts_ready.wait(timeout=120))
+        await _tts_ready.wait()
 
     if ctx.room.remote_participants:
         logger.info("TTS ready, generating greeting via LLM")
@@ -556,4 +644,9 @@ async def voice_session(ctx: agents.JobContext):
         await stt_session.close()
 
 if __name__ == "__main__":
-    agents.cli.run_app(server)
+    agents.cli.run_app(
+        agents.WorkerOptions(
+            entrypoint_fnc=voice_session,
+            prewarm_fnc=prewarm,
+        )
+    )

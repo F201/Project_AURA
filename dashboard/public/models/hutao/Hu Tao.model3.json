@@ -10,14 +10,38 @@
 		"Physics": "Hu Tao.physics3.json",
 		"DisplayInfo": "Hu Tao.cdi3.json",
 		"Expressions": [
-			{ "Name": "SmileLock.exp3.json",   "File": "SmileLock.exp3.json" },
-			{ "Name": "SadLock.exp3.json",     "File": "SadLock.exp3.json" },
-			{ "Name": "Angry.exp3.json",       "File": "Angry.exp3.json" },
-			{ "Name": "Ghost.exp3.json",       "File": "Ghost.exp3.json" },
-			{ "Name": "GhostChange.exp3.json", "File": "GhostChange.exp3.json" },
-			{ "Name": "Shadow.exp3.json",      "File": "Shadow.exp3.json" },
-			{ "Name": "PupilShrink.exp3.json", "File": "PupilShrink.exp3.json" },
-			{ "Name": "EyeshineOff.exp3.json", "File": "EyeshineOff.exp3.json" }
+			{
+				"Name": "SmileLock.exp3.json",
+				"File": "SmileLock.exp3.json"
+			},
+			{
+				"Name": "SadLock.exp3.json",
+				"File": "SadLock.exp3.json"
+			},
+			{
+				"Name": "Angry.exp3.json",
+				"File": "Angry.exp3.json"
+			},
+			{
+				"Name": "Ghost.exp3.json",
+				"File": "Ghost.exp3.json"
+			},
+			{
+				"Name": "GhostChange.exp3.json",
+				"File": "GhostChange.exp3.json"
+			},
+			{
+				"Name": "Shadow.exp3.json",
+				"File": "Shadow.exp3.json"
+			},
+			{
+				"Name": "PupilShrink.exp3.json",
+				"File": "PupilShrink.exp3.json"
+			},
+			{
+				"Name": "EyeshineOff.exp3.json",
+				"File": "EyeshineOff.exp3.json"
+			}
 		]
 	},
 	"Groups": [

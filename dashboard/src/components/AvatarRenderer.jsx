@@ -359,6 +359,7 @@ export const AvatarRenderer = forwardRef(function AvatarRenderer(props, ref) {
         if (moodKey) { _pendingMood = MOODS[moodKey]; break }
       }
 
+      const merged = {}
       for (const name of names) {
         const file = EXPRESSION_FILES[name]
         if (file) _model.expression(file)
