@@ -1,14 +1,13 @@
 {
-  "name": "dashboard",
+  "name": "aura-monorepo",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "lint": "eslint .",
-    "preview": "vite preview",
-    "docs": "mkdocs serve"
+    "dashboard:dev": "npm run dev --prefix dashboard",
+    "dashboard:build": "npm run build --prefix dashboard",
+    "docs": "mkdocs serve",
+    "docs:build": "mkdocs build"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.95.3",

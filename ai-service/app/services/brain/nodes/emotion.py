@@ -2,7 +2,7 @@ from app.services.brain.state import BrainState
 from app.services.llm import llm_service
 
 # Node to detect emotion 
-def detect_emotion(state: BrainState) -> dict:
+async def detect_emotion(state: BrainState) -> dict:
     # Get last user message
     last_message = state["messages"][-1].content 
    
@@ -13,7 +13,7 @@ def detect_emotion(state: BrainState) -> dict:
     """
     
     # Call LLM to detect emotion
-    emotion = llm_service.generate([{"role": "system", "content": prompt}])
+    response = await llm_service.generate([{"role": "system", "content": prompt}])
 
     # Return detected emotion
-    return {"emotion": emotion["emotion"].strip().lower()}
+    return {"emotion": response.get("emotion", "neutral").strip().lower()}

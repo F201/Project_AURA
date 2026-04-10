@@ -129,27 +129,31 @@ class MemoryService:
         return None
 
     # Insert user and AI messages to the messages table
-    async def add_interaction(self, conversation_id: UUID, user_text: str, assistant_text: str, user_emotion: str = "neutral", assistant_emotion: str = "neutral") -> None:
+    async def add_interaction(self, conversation_id: UUID, user_text: str, assistant_text: str | None, user_emotion: str = "neutral", assistant_emotion: str = "neutral") -> None:
         if not self.client:
             return
         try:
-            await self._run(
-                lambda: self.client.table("messages").insert([
-                    CreateMesssage(
-                        conversation_id=conversation_id,
-                        role="user",
-                        content=user_text,
-                        emotion=user_emotion,
-                    ).model_dump(mode="json"),
+            msgs = []
+            if user_text:
+                msgs.append(CreateMesssage(
+                    conversation_id=conversation_id,
+                    role="user",
+                    content=user_text,
+                    emotion=user_emotion,
+                ).model_dump(mode="json"))
 
-                    CreateMesssage(
-                        conversation_id=conversation_id,
-                        role="aura",
-                        content=assistant_text,
-                        emotion=assistant_emotion,
-                    ).model_dump(mode="json"),
-                ]).execute()
-            )
+            if assistant_text:
+                msgs.append(CreateMesssage(
+                    conversation_id=conversation_id,
+                    role="aura",
+                    content=assistant_text,
+                    emotion=assistant_emotion
+                ).model_dump(mode="json"))
+            
+            if msgs:
+                await self._run(
+                    lambda: self.client.table("messages").insert(msgs).execute()
+                )
 
             await self._run(
                 lambda: self.client.table("conversations")
@@ -281,5 +285,23 @@ class MemoryService:
         except Exception as error:
             logger.error(f"Memory Service Get Long Term Memories Error: {error}")
         return ""
+
+    # Get the personality settings from the personality_settings table
+    async def get_personality_settings(self) -> dict | None:
+        if not self.client:
+            return None
+        try:
+            result = await self._run(
+                lambda: self.client.table("personality_settings")
+                    .select("*")
+                    .eq("id", 1)
+                    .single()
+                    .execute()
+            )
+            if result.data:
+                return result.data
+        except Exception as error:
+            logger.error(f"Memory Service Get Personality Settings Error: {error}")
+        return None
 
 memory_service = MemoryService()

@@ -28,30 +28,28 @@ export default function ChatInput({ onSend, disabled }) {
     }
 
     return (
-        <div className="px-8 pb-6 pt-2">
-            <div className="max-w-3xl mx-auto flex items-end gap-3 p-3 bg-white border border-slate-200 rounded-2xl shadow-lg shadow-black/[0.03]">
+        <div className="flex items-end gap-3 p-4 bg-white rounded-3xl border border-slate-200 shadow-xl relative group transition-all focus-within:border-primary/50 focus-within:ring-4 focus-within:ring-primary/5">
+            <textarea
+                ref={textareaRef}
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Message AURA..."
+                disabled={disabled}
+                rows={1}
+                className="flex-1 bg-transparent text-[15px] resize-none outline-none py-2 px-3 placeholder-slate-400 text-slate-800 disabled:opacity-50"
+            />
 
-                <textarea
-                    ref={textareaRef}
-                    value={text}
-                    onChange={(e) => setText(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    placeholder="Type a message..."
-                    disabled={disabled}
-                    rows={1}
-                    className="flex-1 bg-transparent text-sm resize-none outline-none py-2 px-2 placeholder-slate-400 disabled:opacity-50"
-                />
-                <button
-                    type="button"
-                    onClick={handleSubmit}
-                    disabled={!text.trim() || disabled}
-                    className="flex items-center justify-center w-10 h-10 rounded-xl aura-gradient text-white transition-all disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed"
-                >
-                    <span className="material-icons-round text-lg">
-                        {disabled ? 'hourglass_top' : 'arrow_upward'}
-                    </span>
-                </button>
-            </div>
+            <button
+                type="button"
+                onClick={handleSubmit}
+                disabled={!text.trim() || disabled}
+                className="flex items-center justify-center w-11 h-11 rounded-2xl aura-gradient text-white transition-all disabled:opacity-20 shadow-lg shadow-primary/20 cursor-pointer disabled:cursor-not-allowed hover:scale-105 active:scale-95"
+            >
+                <span className="material-icons-round">
+                    {disabled ? 'hourglass_top' : 'send'}
+                </span>
+            </button>
         </div>
     )
 }

@@ -85,51 +85,74 @@ export default function KnowledgeBase() {
     }
 
     return (
-        <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm flex flex-col">
-            <div className="flex justify-between items-center mb-8">
-                <h3 className="text-xl font-bold flex items-center gap-2">
-                    <span className="material-icons-round text-primary">auto_stories</span>
-                    Knowledge Base
-                </h3>
-                <span className="text-sm font-bold text-slate-400">{files.length} files</span>
+        <div className="flex flex-col h-full">
+            <div className="flex justify-between items-end mb-8 px-2">
+                <div className="space-y-1">
+                    <h3 className="text-xl font-black text-white tracking-widest uppercase flex items-center gap-3">
+                        <span className="w-2 h-2 rounded-full bg-primary shadow-[0_0_8px_#ff7e33]" />
+                        Cognitive Core
+                    </h3>
+                    <p className="text-[10px] text-white/20 font-black uppercase tracking-[0.2em]">Contextual Data Vectors</p>
+                </div>
+                <div className="px-3 py-1 bg-white/5 rounded-full border border-white/5 shadow-inner">
+                    <span className="text-[10px] font-black text-primary/80 uppercase tracking-tighter">{files.length} ASSETS MAPPED</span>
+                </div>
             </div>
 
             {/* File list */}
-            <div className="flex-1 space-y-4 mb-8 overflow-y-auto max-h-64 custom-scrollbar pr-2">
+            <div className="flex-1 space-y-3 mb-10 overflow-y-auto max-h-72 custom-scrollbar-dark pr-3">
                 {files.map((f) => (
-                    <div key={f.id} className="flex items-center justify-between p-3 bg-bg-light rounded-lg group border border-transparent hover:border-primary/30 transition-all">
+                    <div key={f.id} className="flex items-center justify-between p-4 bg-white/[0.03] rounded-2xl group border border-white/5 hover:border-primary/20 hover:bg-white/5 transition-all shadow-lg">
                         <div className="flex items-center gap-4">
-                            <div className="w-10 h-10 bg-white rounded flex items-center justify-center text-primary border border-slate-200">
-                                <span className="material-icons-round">{mimeIcon(f.mime_type)}</span>
+                            <div className="w-12 h-12 bg-black/40 rounded-xl flex items-center justify-center text-primary border border-white/5 shadow-inner group-hover:scale-110 transition-transform">
+                                <span className="material-icons-round text-xl">{mimeIcon(f.mime_type)}</span>
                             </div>
                             <div>
-                                <h4 className="text-sm font-bold">{f.filename}</h4>
-                                <p className="text-[10px] text-slate-400 uppercase">
-                                    {new Date(f.created_at).toLocaleDateString()} • {formatSize(f.size_bytes)}
-                                </p>
+                                <h4 className="text-[13px] font-bold text-white/90 group-hover:text-primary transition-colors">{f.filename}</h4>
+                                <div className="flex items-center gap-2 mt-1">
+                                    <span className="text-[9px] text-white/20 font-black uppercase tracking-widest">{formatSize(f.size_bytes)}</span>
+                                    <span className="w-1 h-1 rounded-full bg-white/10" />
+                                    <span className="text-[9px] text-white/20 font-black uppercase tracking-widest">{new Date(f.created_at).toLocaleDateString()}</span>
+                                </div>
                             </div>
                         </div>
                         <button
                             type="button"
                             onClick={() => handleDelete(f.id)}
-                            className="text-slate-400 hover:text-red-500 transition-colors cursor-pointer"
+                            className="w-8 h-8 flex items-center justify-center rounded-lg text-white/20 hover:text-red-400 hover:bg-red-500/10 transition-all cursor-pointer"
                         >
-                            <span className="material-icons-round text-lg">delete_outline</span>
+                            <span className="material-icons-round text-lg">delete_sweep</span>
                         </button>
                     </div>
                 ))}
+
+                {files.length === 0 && (
+                    <div className="py-12 flex flex-col items-center justify-center opacity-10 grayscale">
+                        <span className="material-icons-round text-6xl mb-4">folder_off</span>
+                        <p className="text-xs font-black uppercase tracking-[0.3em]">No Data Mapped</p>
+                    </div>
+                )}
             </div>
 
             {/* Upload zone */}
-            <label className="border-2 border-dashed border-slate-200 rounded-xl p-8 flex flex-col items-center justify-center text-center group hover:border-primary transition-colors cursor-pointer bg-bg-light/50">
+            <label className="relative overflow-hidden border-2 border-dashed border-white/5 rounded-3xl p-10 flex flex-col items-center justify-center text-center group hover:border-primary/30 hover:bg-primary/[0.02] transition-all cursor-pointer bg-black/20 shadow-inner">
+                <div className="absolute inset-0 aura-gradient opacity-0 group-hover:opacity-[0.03] transition-opacity pointer-events-none" />
                 <input type="file" onChange={handleUpload} className="hidden" accept=".pdf,.txt,.json,.csv,.zip,.pptx" />
-                <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
-                    <span className="material-icons-round text-primary">
-                        {uploading ? 'hourglass_top' : 'cloud_upload'}
+
+                <div className="w-16 h-16 rounded-2xl bg-white/5 flex items-center justify-center mb-5 group-hover:scale-110 group-hover:bg-primary/10 transition-all shadow-xl border border-white/5 group-hover:border-primary/20">
+                    <span className={`material-icons-round text-3xl transition-all ${uploading ? 'text-primary animate-spin' : 'text-white/40 group-hover:text-primary'}`}>
+                        {uploading ? 'hourglass_empty' : 'auto_mode'}
                     </span>
                 </div>
-                <p className="font-bold text-sm">{uploading ? 'Uploading...' : 'Upload New Knowledge'}</p>
-                <p className="text-xs text-slate-400 mt-1">PDF, TXT, PPTX, JSON, or CSV up to 50MB</p>
+
+                <div className="space-y-1">
+                    <p className="font-black text-xs text-white/80 group-hover:text-white uppercase tracking-[0.1em] transition-colors">
+                        {uploading ? 'INGESTING DATA...' : 'INITIATE NEURAL INGESTION'}
+                    </p>
+                    <p className="text-[10px] text-white/20 font-medium tracking-tight">
+                        Drop PDF, TXT, JSON, or CSV (UP TO 50MB)
+                    </p>
+                </div>
             </label>
         </div>
     )

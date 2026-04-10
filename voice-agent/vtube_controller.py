@@ -28,7 +28,7 @@ class VTubeController:
         self._vts_lock = asyncio.Lock()  # Serialize all VTS API requests
         self.active_expressions = {}  # name -> hotkey_id, tracks which expressions are currently active
 
-        # Always initialized — detect_emotion() uses these regardless of VTube being enabled
+        # Expression mapping
         self.expressions = {
             "sad": "Sad",
             "smile": "Smile",
@@ -48,48 +48,19 @@ class VTubeController:
             "緊張": "Ghost Nervous",
             "影": "Shadow",
             "瞳孔": "Pupil Shrink",
-            "wink": "EyeOpenLeft",
-            "tongue": "TongueOut",
+            "wink": "EyeOpenLeft", # Parameter, but also used as feature key
+            "tongue": "TongueOut", # Parameter
             "ウインク": "wink",
             "べー": "tongue"
         }
 
+        # Bilingual emotion keywords
         self.emotion_keywords = {
-            "sad": [
-                # English
-                "sad", "sadly", "sorry", "unfortunate", "regret", "miss", "lonely", "cry", "crying",
-                "depressed", "depressing", "upset", "unhappy", "miserable", "heartbroken",
-                # Japanese
-                "悲しい", "かなしい", "寂しい", "さびしい", "辛い", "つらい",
-                "残念", "ざんねん", "泣", "ない", "切ない", "せつない"
-            ],
-            "angry": [
-                # English
-                "angry", "mad", "annoyed", "annoying", "frustrated", "frustrating", "hate", "hated", "stupid", "idiot", 
-                "dumb", "terrible", "furious", "irritated", "irritating", "pissed",
-                # Japanese
-                "怒", "おこ", "怒る", "おこる", "イライラ", "いらいら", "腹立つ",
-                "はらだつ", "馬鹿", "ばか", "嫌い", "きらい", "最悪", "さいあく",
-                "もう！", "信じられない"
-            ],
-            "smile": [
-                # English
-                "smile", "smiling", "grin", "grinning", "chuckle", "chuckling", "giggle", "giggling", "teehee", "hehe", "haha",
-                "happy", "glad", "great", "awesome", "wonderful", "love", "like", 
-                "enjoy", "fun", "yay", "excited", "exciting", "joy", "cheerful", "delighted",
-                # Japanese
-                "笑", "わら", "微笑む", "ほほえむ", "ニヤニヤ", "にやにや", "くすくす",
-                "あはは", "ふふふ",
-                "嬉しい", "うれしい", "楽しい", "たのしい", "幸せ", "しあわせ",
-                "やった", "最高", "さいこう", "素晴らしい", "すばらしい", "ワクワク"
-            ],
-            "ghost": [
-                # English
-                "ghost", "boo", "spooky", "scared", "scary", "afraid", "spirit", "haunted", "dead",
-                # Japanese
-                "幽霊", "ゆうれい", "お化け", "おばけ", "怖い", "こわい", "霊", "れい"
-            ],
-            "ghost_nervous": ["nervous", "flustered", "caught", "embarrassed", "embarrassing", "shook", "shocked"],
+            "sad": ["sad", "sadly", "sorry", "unfortunate", "regret", "miss", "lonely", "cry", "crying", "miserable"],
+            "angry": ["angry", "mad", "annoyed", "frustrated", "hate", "stupid", "idiot", "dumb", "terrible", "furious"],
+            "smile": ["smile", "smiling", "grin", "chuckle", "giggle", "teehee", "hehe", "haha", "happy", "glad", "yay", "joy"],
+            "ghost": ["ghost", "boo", "spooky", "scared", "scary", "afraid", "spirit", "haunted"],
+            "ghost_nervous": ["nervous", "flustered", "caught", "embarrassed", "shook", "shocked"],
             "shadow": ["scary", "menacing", "dark", "evil", "shadow", "creepy"],
             "eyeshine_off": ["deadface", "disappointed", "uncool", "serious", "cold", "empty"],
             "pupil_shrink": ["prank", "mischief", "cheeky", "teasing", "silly", "surprise", "surprised"],
@@ -102,8 +73,14 @@ class VTubeController:
             return
 
         self.expression_hotkey_map = {}
+
+        # Track raw parameter values to restore them later: parameter_name -> last_injected_value
         self.injected_parameters = {}
+
+        # Prevent repetitive animations (like double-winking) in a single turn
         self.turn_animation_log = set()
+
+        # Mapping for reset logic: parameter -> trigger_feature
         self.PARAM_TO_FEATURE = {
             "EyeOpenLeft": "wink",
             "EyeOpenRight": "wink",
@@ -419,10 +396,23 @@ class VTubeController:
         if not self.is_enabled or not self.connected:
             return
         
-        # Turn off all active expressions
+        logger.debug("Resetting AURA to neutral expressions...")
+        # 1. Turn off all active expressions (hotkeys)
         for expr_name in list(self.active_expressions.keys()):
-            await self._trigger_hotkey(expr_name)
+            await self._trigger_hotkey(expr_name, action="Toggling OFF")
         self.active_expressions.clear()
+
+        # 2. Reset all injected parameters to default values
+        # We also explicitly reset high-likelihood "sticking" parameters
+        all_params_to_clear = set(self.injected_parameters.keys()) | {"TongueOut", "MouthOpen", "EyeOpenLeft", "EyeOpenRight"}
+        
+        for p_name in all_params_to_clear:
+            # Reset to a safe default (usually 1.0 for eyes, 0.0 for tongue/mouth)
+            default_val = 1.0 if "EyeOpen" in p_name else 0.0
+            await self.inject_parameter(p_name, default_val)
+        
+        self.injected_parameters.clear()
+        logger.debug("AURA successfully reset to neutral.")
     
     def detect_emotion(self, text):
         """Bilingual detection: Looks for explicit tags [tag1, tag2] first, then falls back to keywords."""

@@ -8,3 +8,4 @@ class BrainState(TypedDict):
     messages: Annotated[List[BaseMessage], operator.add]
     emotion: str
     conversation_id: str
+    identity: str

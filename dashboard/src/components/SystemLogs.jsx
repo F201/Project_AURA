@@ -52,17 +52,17 @@ export default function SystemLogs() {
     }
 
     return (
-        <div className="bg-[#121212] rounded-xl overflow-hidden border border-white/5 shadow-2xl">
-            <div className="bg-[#1a1a1a] px-6 py-3 border-b border-white/5 flex justify-between items-center">
+        <div className="bg-slate-900 rounded-xl overflow-hidden border border-slate-800 shadow-2xl">
+            <div className="bg-slate-800/50 px-6 py-3 border-b border-slate-800 flex justify-between items-center">
                 <div className="flex items-center gap-2">
                     <span className="material-icons-round text-primary text-sm">terminal</span>
-                    <span className="text-xs font-bold text-white/60 tracking-widest uppercase">
+                    <span className="text-xs font-bold text-slate-400 tracking-widest uppercase">
                         System Logs — Live Stream
                     </span>
                 </div>
                 <div className="flex gap-1.5">
-                    <div className="w-2.5 h-2.5 rounded-full bg-white/10" />
-                    <div className="w-2.5 h-2.5 rounded-full bg-white/10" />
+                    <div className="w-2.5 h-2.5 rounded-full bg-slate-700" />
+                    <div className="w-2.5 h-2.5 rounded-full bg-slate-700" />
                     <div className="w-2.5 h-2.5 rounded-full bg-primary/40" />
                 </div>
             </div>

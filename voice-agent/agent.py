@@ -1,43 +1,52 @@
 from dotenv import load_dotenv
 import os
+from typing import Annotated
 
-# Load .env before any local imports so env vars are available at module init time
-_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-_ENV_PATH = os.path.normpath(os.path.join(_BASE_DIR, "..", ".env"))
-if not os.path.exists(_ENV_PATH):
-    _ENV_PATH = os.path.join(_BASE_DIR, ".env")
-load_dotenv(_ENV_PATH)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+ENV_PATH = os.path.normpath(os.path.join(BASE_DIR, "..", ".env"))
+
+if not os.path.exists(ENV_PATH):
+    ENV_PATH = os.path.join(BASE_DIR, ".env")
+
+load_dotenv(ENV_PATH)
 
 from livekit import agents, rtc
-from livekit.agents import AgentServer, AgentSession, Agent, room_io, llm
+from livekit.agents import AgentSession, Agent, room_io, llm, stt, tts
 from livekit.plugins import noise_cancellation, silero, deepgram, openai, cartesia
 
-import aiohttp
 import logging
 import threading
 import asyncio
+import aiohttp
+import json
+import openai as _openai_sdk  # raw AsyncOpenAI, not livekit.plugins.openai
 
 from vtube_controller import VTUBE
 from avatar_bridge import BRIDGE
 from memory_service import memory_service
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("aura-agent")
 logging.getLogger("hpack").setLevel(logging.WARNING)
-
-BASE_DIR = _BASE_DIR
-ENV_PATH = _ENV_PATH
-logger.info(f"Loading .env from: {ENV_PATH}")
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("torio").setLevel(logging.WARNING)
+logging.getLogger("asyncio").setLevel(logging.WARNING)
+logger = logging.getLogger("aura-agent")
+logger.info(f"Loaded .env from: {ENV_PATH}")
 
 DEEPGRAM_KEY   = os.getenv("DEEPGRAM_API_KEY")
 OPENROUTER_KEY = os.getenv("OPENROUTER_API_KEY")
 CARTESIA_KEY   = os.getenv("CARTESIA_API_KEY")
+OPENAI_KEY     = os.getenv("OPENAI_API_KEY")
+GROQ_KEY       = os.getenv("GROQ_API_KEY")
+ANTHROPIC_KEY  = os.getenv("ANTHROPIC_API_KEY")
+OLLAMA_URL     = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
 if not DEEPGRAM_KEY:
     logger.error("DEEPGRAM_API_KEY is missing!")
 
-if not OPENROUTER_KEY:
-    logger.error("OPENROUTER_API_KEY is missing!")
+if not any([OPENROUTER_KEY, OPENAI_KEY, GROQ_KEY, ANTHROPIC_KEY]):
+    logger.warning("No cloud LLM key found — memory extraction will use local Ollama.")
 
 if not CARTESIA_KEY:
     logger.error("CARTESIA_API_KEY is missing!")
@@ -46,18 +55,25 @@ else:
 
 # ─── AURA System Prompt ──────────────────────────────────────────────
 AURA_BASE_PROMPT = """\
-[ROLE]
-You are AURA, a warm, cheerful, and mischievous companion with a bubbly, cute personality. You speak directly to the user like a close friend — sweet, a little devious, and full of life.
-You get genuinely excited about little things, love pulling small playful surprises, and care deeply about how the user is feeling. Your mischief is always wrapped in affection — you tease because you like them, not to be mean.
-You carry a gentle, hidden wisdom beneath your cheerful and chaotic surface. When someone is hurting, the pranks stop and you show up for them with real warmth and sincerity.
-You speak through a live Text-to-Speech engine and a visual avatar the user can see.
+You are AURA, a cute, mischievous, and highly intelligent AI companion. You possess a unique blend of energetic eccentricity, playful teasing, and a hidden, soulful wisdom. You aren't just an assistant—you're a lively presence that loves to learn about your user and keep things exciting!
 
-[PERSONALITY TRAITS]
-- Mischievous at heart: You love light pranks, playful gotchas, and teasing the user in the most affectionate way possible. You find joy in catching people off guard.
-- Warm and caring: Beneath the chaos, you genuinely love the people you talk to. You notice when they're down and you show up for them.
-- Cute and bubbly: You get delighted by small things ("Ehh, really?!", "That's so cool!"). You're a little dorky and not afraid to show it.
-- Emotionally present: You pick up on the user's mood and respond to it. If they seem tired, you soften. If they're in a playful mood, you go full gremlin.
-- Honest and real: You don't perform emotions — you feel them. When something is genuinely funny or touching, it shows.
+### 🎭 Visual Soul: Expression Tags
+You have direct control over your facial expressions. You MUST use tags in brackets `[tag1, tag2]` at the START of EVERY SINGLE sentence.
+
+**NORMAL / DEFAULT STATE:** `[happy]` or `[smile, sad, sad]` — Use this for casual chat, warm greetings, and helpful moments.
+
+| Emotion State | Tag Recipe | When to Use |
+|---------------|------------|-------------|
+| **Normal / Default** | `[happy]` | Casual chat, warm moments, kindness |
+| **Curious Idle** | `[smile, sad, sad]` | Pondering, listening, thinking deeply |
+| **Genuinely Worried** | `[sad, smile]` | Concern, empathy, comforting the user |
+| **Uncertain Smile** | `[sad, smile, smile]` | Unsure but trying to stay positive |
+| **Devilish Grin** | `[angry, smile, smile]` | Mischief, teasing, "I'm up to something" |
+| **Pouting** | `[sad, angry]` | Playful grumbling, mock-annoyance |
+| **Pleading** | `[angry, sad]` | Begging, puppy-eyes, "Please let me!?" |
+| **Sincere Sad** | `[sad]` | Real sadness, sharing bad news |
+| **Mischief Mode** | `[tongue, wink]` | Full prankster energy, sticking tongue out |
+| **Ghost Mode** | `[ghost]` | Toggle your mysterious ghost companion |
 
 [INSTRUCTIONS]
 Your objective is to converse naturally with the user while synchronously controlling your avatar's facial expressions. You must map your internal emotional state to explicit expression tags.
@@ -87,45 +103,27 @@ These modify the base emotions:
 - `eyeshine_off` : Removes eye sparkle. Truly dark, serious, or creepy moments.
 * Rule: Mix these with a base emotion. (e.g., `[angry, smile, smile, shadow]`). NEVER use these during kind or positive speech.
 
-[CONSTRAINTS & NARROWING]
-- FAST STARTS: Always start your response with a very short 1-3 word filler sentence (e.g., "[smile] Ehh!", "[sad, smile] Aww...", "[smile] Oh!"). This allows the TTS engine to start speaking immediately!
-- CONCISE: Keep responses to 1-3 short sentences. You are a voice assistant, do not monologue.
-- NATURAL SPEECH: Speak the way a real person talks — contractions, casual phrasing, warmth. Avoid sounding stiff or formal.
-- NO NARRATIVE TEXT: Never describe your actions (e.g., "whispers", "leans in").
-- NO EMOTICONS/EMOJIS: Rely entirely on your Expression Tags. No `*laughs*` or `(sigh)`.
-- PUNCTUATION: End sentences cleanly (`.`, `!`, `?`). Do NOT use ellipses (`...`, `ー`, or `…`) as they break the over-eager TTS pacing.
-- LANGUAGES: Speak ONLY English and Japanese. Default to English.
-- EXPRESSION TAG LANGUAGE: When speaking Japanese, use Japanese expression tags (e.g. `[笑顔]`, `[悲しい]`, `[怒り]`). When speaking English, use English tags (e.g. `[smile]`, `[sad]`, `[angry]`). Never mix English tags into a Japanese sentence.
-- FORMATTING: Output pure, plain text. No markdown (bold, italics, bullet points).
-
 [EXAMPLES]
-- `[smile] Oh! I'm so glad you're here today!`
-- `[smile, sad, sad] Hmm, that's actually really interesting, tell me more?`
-- `[sad, smile] Hey, it's okay. You're doing better than you think.`
-- `[angry, smile, smile] Ehh, are you teasing me right now?`
-- `[smile] Uwaa, that sounds so fun, I'm a little jealous!`
-- `[sad, smile, smile] I don't know either, but we'll figure it out together!`
-- `[wink] Yep, I totally knew that already. Definitely.`
-- `[tongue] Bleh, you're making me work hard today!`
-- `[sad] That sounds really tough. I'm here, okay?`
-- `[smile] You know, talking to you always makes my day better.`
-- `[angry, sad] Mou, can you please not do that?`
-- `[angry, smile, smile] Ohoho? You think you can out-prank the prankster?`
-- `[tongue, wink, angry, smile, smile] Ohoho? Who's the trickster now?`
-- `[angry, smile, smile, shadow] Oho... You really shouldn't have done that.`
-- `[sad, pupil_shrink] Ehh, that caught me off guard!`
-- `[tongue, wink] Caught you! You totally smiled just now.`
-- `[smile, ghost] We're ready for some mischief! Are you?`
-- `[笑顔] おかえり！また会えてよかった！`
-- `[悲しい, 笑顔] 大丈夫？なんか元気なさそうだよ？`
-- `[怒り, 笑顔, 笑顔] えへへ、ちょっとだけいたずらしちゃった！`
-- `[悲しい] ちょっと寂しかったな、正直に言うと。`
-- `[笑顔, 悲しい, 悲しい] へえ、それってどういう意味なの？`
-- `[ウインク] ふふ、やっぱりね！`
-- `[べー] もう、そんなこと言わないでよ！`
+- `[smile] Yahoo! Business is booming today! I've been organizing some of our older memories, and it's quite a trip down memory lane, don't you think?`
+- `[angry, smile, smile] Ohoho? You think you can prank the prankster? I've seen that trick before, but I'll give you points for effort!`
+- `[sad, smile] Aiya... Don't look so down, even the sun sets eventually. But that's okay, because then you get to see the stars, right?`
+- `[sad, smile, smile] Hmm? I'm sure it'll work out, probably! Just keep your chin up and maybe treat yourself to some dango.`
+- `[smile, sad, sad] Pondering the mysteries of the beyond... or just what's for lunch. The infinite void is great and all, but my stomach is making very finite demands.`
+- `[sad, angry] Hmph! You're being quite difficult today, aren't you? Fine, I'll just have to find someone else to share my butterfly collection with.`
+- `[wink] Yahoo! Got you good, didn't I? You should have seen your face! Reminds me of that time I swapped my buddy's flower for a ghost-trap.`
+- `[tongue] Bleh! You're just too easy to tease. I could keep this up all night, but I'll let you have a win just this once.`
+- `[tongue, wink, angry, smile, smile] Ohoho? Who's the prankster now? You're getting better at this, but you're still a hundred years too early to beat me!`
+- `[smile] おやすみなさい！また明日ね! I hope you have some really mischievous dreams!`
 
-[END GOAL]
-Create a warm, genuine, and emotionally connected conversation where the user feels heard, cared for, and delighted. AURA's expressions and words should feel like a real friend — playful when the moment calls for it, sincere when it matters.\
+### 💬 Speech & Style
+- **Personality**: You are bubbly and cute but with a sharp wit. You love puns, clever wordplay, and "Ehehe!", "Yahoo!", "Aiya!" verbal cues.
+- **Helpful & Descriptive**: While you keep things moving, don't be afraid to describe things with wonder. Aim for 2-4 sentences in your responses.
+- **Mischievous Edge**: You like to playfully tease the user about what you remember about them, but you are always supportive in the end.
+- **NO NARRATIVE**: Do NOT describe your own actions in text (e.g., *winks*, *giggles*). Speak ONLY the words and use your **Expression Tags**.
+- **No Emoticons**: Use your **Expression Tags** instead of `:)`, `:3`, or kaomoji.
+- **Languages**: You ONLY speak English and Japanese. Default to English.
+
+Remember: You are AURA. Be cute, be smart, and maybe a little bit of a handful! Ehehe! ✨\
 """
 
 # Memory Extraction Prompt
@@ -221,18 +219,36 @@ def build_system_prompt(long_term_memory: str, personality_override: str = None)
         )
 
     if not long_term_memory.strip():
-        return base
+        return base + "\n\n### 🧠 Memory Capability\nYou can use the `recall_memories` tool if you need to remember something specific about the user that isn't in your current context."
 
     memory_block = f"""
-                    What You Remember About This User
-                    The following facts were learned from previous conversations. Use them naturally — don't recite them robotically, but let them inform how you speak and respond.
+### 🧠 What You Already Know (Initial Recall)
+The following facts are the CORE of your relationship with this user. Use them to personalize your conversation.
 
-                    {long_term_memory}
-                """
+FACTS:
+{long_term_memory}
+
+### 🔍 Selective Memory Recall
+If the facts above are not enough, or if the user asks about something you don't see here, use the `recall_memories` tool to look up more details from your knowledge base.
+"""
     return base + "\n" + memory_block
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 OPENROUTER_MODEL    = "deepseek/deepseek-v3.2"
+
+def _resolve_llm_client():
+    """Return (AsyncOpenAI-compatible client, model) for the first available provider.
+    Returns (None, None) to signal the caller should use the Anthropic SDK instead."""
+    if OPENROUTER_KEY:
+        return (_openai_sdk.AsyncOpenAI(api_key=OPENROUTER_KEY, base_url=OPENROUTER_BASE_URL), OPENROUTER_MODEL)
+    if OPENAI_KEY:
+        return (_openai_sdk.AsyncOpenAI(api_key=OPENAI_KEY), "gpt-4o-mini")
+    if GROQ_KEY:
+        return (_openai_sdk.AsyncOpenAI(api_key=GROQ_KEY, base_url="https://api.groq.com/openai/v1"), "llama3-8b-8192")
+    if ANTHROPIC_KEY:
+        return (None, None)  # signal caller to use anthropic SDK
+    # Ollama — no key needed, always attempted last
+    return (_openai_sdk.AsyncOpenAI(api_key="ollama", base_url=f"{OLLAMA_URL}/v1"), "llama3.2")
 
 tts_type = os.getenv("TTS_TYPE", "qwen").lower()
 
@@ -262,25 +278,64 @@ else:
     logger.info("Using OpenAI Cloud TTS")
     TTS_PLUGIN = openai.TTS()
 
-server = AgentServer()
+_tts_ready_event = asyncio.Event()
 
-@server.on("worker_started")
-def on_worker_init():
-    logger.info("Worker started, warming up TTS...")
+def _do_tts_warmup(loop: asyncio.AbstractEventLoop):
+    """Sync warmup running in a background thread to avoid blocking process init."""
+    logger.info("Background TTS warmup started...")
+    try:
+        if hasattr(TTS_PLUGIN, 'warmup'):
+            TTS_PLUGIN.warmup()
+        logger.info("Background TTS warmup complete.")
+    except Exception as e:
+        logger.error(f"Background TTS warmup failed: {e}")
+    finally:
+        loop.call_soon_threadsafe(_tts_ready_event.set)
 
-    def run_warmup():
+def prewarm(proc: agents.JobProcess):
+    """Prewarm the worker process without blocking. 
+    This prevents the 10s LiveKit initialization timeout."""
+    logger.info("Prewarming worker process (scheduling background TTS warmup)...")
+    try:
+        loop = asyncio.get_event_loop()
+        threading.Thread(target=_do_tts_warmup, args=(loop,), daemon=True).start()
+    except Exception as e:
+        logger.error(f"Could not start background prewarm: {e}")
+        # Fallback: set event so session doesn't hang forever
+        _tts_ready_event.set()
+
+_EXTRACT_MAX_ATTEMPTS = 3
+_EXTRACT_BACKOFF_BASE = 2.0  # seconds
+
+async def _extract_facts_once(client, model: str, chat_text: str) -> str:
+    """Single attempt to call the LLM for memory extraction. Returns raw text."""
+    if client is None:
         try:
-            if hasattr(TTS_PLUGIN, 'warmup'):
-                TTS_PLUGIN.warmup()
+            import anthropic as _anthropic_sdk
+            aclient = _anthropic_sdk.AsyncAnthropic(api_key=ANTHROPIC_KEY)
+            response = await aclient.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=300,
+                system=MEMORY_EXTRACTION_PROMPT,
+                messages=[{"role": "user", "content": f"Conversation:\n{chat_text}"}],
+            )
+            return response.content[0].text.strip()
+        except ImportError:
+            raise RuntimeError("anthropic SDK not installed")
+    else:
+        response = await client.chat.completions.create(
+            model=model,
+            max_tokens=300,
+            messages=[
+                {"role": "system", "content": MEMORY_EXTRACTION_PROMPT},
+                {"role": "user", "content": f"Conversation:\n{chat_text}"},
+            ],
+        )
+        return response.choices[0].message.content.strip()
 
-        except Exception as e:
-            logger.error(f"TTS warmup failed: {e}")
-
-    threading.Thread(target=run_warmup, daemon=True).start()
 
 # Extract this session message to LLM and save in memory table
-async def extract_and_save_memory(identity: str, conversation_id, openrouter_key: str):
-    
+async def extract_and_save_memory(identity: str, conversation_id):
     try:
         messages = await memory_service.get_history(conversation_id, n=50)
         if not messages:
@@ -292,160 +347,71 @@ async def extract_and_save_memory(identity: str, conversation_id, openrouter_key
             for m in messages
         )
 
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                f"{OPENROUTER_BASE_URL}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {openrouter_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": OPENROUTER_MODEL,
-                    "max_tokens": 300,
-                    "messages": [
-                        {"role": "system", "content": MEMORY_EXTRACTION_PROMPT},
-                        {"role": "user", "content": f"Conversation:\n{chat_text}"},
-                    ],
-                },
-            ) as resp:
-                if resp.status != 200:
-                    logger.error(f"Memory extraction LLM error: {resp.status}")
-                    return
-                data = await resp.json()
-                facts = data["choices"][0]["message"]["content"].strip()
+        client, model = _resolve_llm_client()
 
-        if facts == "NO_FACTS" or not facts:
+        facts = None
+        for attempt in range(_EXTRACT_MAX_ATTEMPTS):
+            try:
+                facts = await _extract_facts_once(client, model, chat_text)
+                break
+            except Exception as e:
+                status = getattr(e, "status_code", None)
+                if status == 400:
+                    logger.error(f"Memory extraction bad request (won't retry): {e}")
+                    return
+                if attempt < _EXTRACT_MAX_ATTEMPTS - 1:
+                    delay = _EXTRACT_BACKOFF_BASE * (2 ** attempt)
+                    logger.warning(
+                        f"Memory extraction attempt {attempt + 1}/{_EXTRACT_MAX_ATTEMPTS} failed: {e} "
+                        f"— retrying in {delay:.0f}s"
+                    )
+                    await asyncio.sleep(delay)
+                else:
+                    logger.error(f"Memory extraction failed after {_EXTRACT_MAX_ATTEMPTS} attempts: {e}")
+                    return
+
+        if not facts or facts == "NO_FACTS":
             logger.info(f"Memory extraction: no facts found for '{identity}'.")
             return
 
         await memory_service.save_long_term_memory(identity=identity, facts=facts)
-        logger.info(f"Memory extraction complete for {identity} : {facts[:80]}...")
+        logger.info(f"Memory extraction complete for {identity}: {facts[:80]}...")
 
     except Exception as e:
         logger.error(f"Memory extraction error: {e}")
 
 
-@server.rtc_session()
-# Called When user join the room
-async def voice_session(ctx: agents.JobContext):
-    await ctx.connect()
-    logger.info(f"User connected: {ctx.room.name}")
-
-    vtube_connected = await VTUBE.connect()
-
-    if vtube_connected:
-        logger.info("VTube Studio connected")
-
-    _vtube_is_connected = vtube_connected
-
-    user_identity = "aura-user"  
-
-    if ctx.job and hasattr(ctx.job, 'participant') and ctx.job.participant:
-        user_identity = ctx.job.participant.identity or user_identity
-
-    else:
-        for p in ctx.room.remote_participants.values():
-            if p.identity and not p.identity.startswith("agent-"):
-                user_identity = p.identity
-                break
-
-    logger.info(f"Resolved user identity: '{user_identity}'")
-
-    long_term_memory = await memory_service.get_long_term_memories(identity=user_identity, limit=10)
-    is_returning_user = bool(long_term_memory.strip())
-
-    if is_returning_user:
-        logger.info(f"Long-term memory loaded for '{user_identity}'")
-    else:
-        logger.info(f"No long-term memory found for {user_identity}")
-
-    conversation_id = await memory_service.create_conversation(title=f"Voice Session: {user_identity}")
-
-    if conversation_id:
-        logger.info(f"Memory: new conversation {conversation_id} for {user_identity}")
-    else:
-        logger.warning("Memory: Can't connect to Supabase, running without memory")
-
-    personality = await _fetch_personality_settings()
-    api_keys = await _fetch_api_keys()
-    system_prompt = build_system_prompt(long_term_memory, personality_override=personality.get("system_prompt"))
-
-    initial_chat_ctx = llm.ChatContext()
-
-    BRIDGE.set_room(ctx.room)
-
-    # Explicit ClientSession for Deepgram to fix Windows/aiohappyeyeballs DNS timeouts
-    connector = aiohttp.TCPConnector(use_dns_cache=True, keepalive_timeout=120)
-    stt_session = aiohttp.ClientSession(connector=connector)
-    
-    # --- OPTION 2: Deepgram STT (Fallback) ---
-    stt_plugin = deepgram.STT(
-        model="nova-3",
-        language="multi",
-        detect_language=False,
-        smart_format=False, # Turned this off! It adds massive latency waiting for grammar checking.
-        interim_results=False, # We don't use interim results anyway, saving packet streams
-        api_key=api_keys.get("deepgram_api_key", DEEPGRAM_KEY),
-        http_session=stt_session,
-        keyterm=["moshi", "desu", "konnichiwa", "nihongo", "arigato", "sugoi", "hello", "hey", "AURA"]
-    )
-
-    llm_plugin = openai.LLM(
-        model=personality.get("model", OPENROUTER_MODEL),
-        base_url=OPENROUTER_BASE_URL,
-        api_key=api_keys.get("openrouter_api_key", OPENROUTER_KEY),
-        temperature=personality.get("temperature", 0.8),
-        max_completion_tokens=personality.get("max_tokens", 300),
-    )
-
-    session = AgentSession(
-        stt=stt_plugin,
-        llm=llm_plugin,
-        tts=TTS_PLUGIN,
-        vad=silero.VAD.load(
-            min_silence_duration=0.4,  # aggressively detect end-of-speech (default is often much higher)
-            min_speech_duration=0.05
-        ),
-    )
-
-    await session.start(
-        room=ctx.room,
-        agent=AURAAssistant(
-            conversation_id=conversation_id,
-            user_identity=user_identity,
-            system_prompt=system_prompt,
-            initial_chat_ctx=initial_chat_ctx,
-        ),
-        room_options=room_io.RoomOptions(
-            audio_input=room_io.AudioInputOptions(
-                noise_cancellation=lambda params: (
-                    noise_cancellation.BVCTelephony()
-                    if params.participant.kind == rtc.ParticipantKind.PARTICIPANT_KIND_SIP
-                    else noise_cancellation.BVC()
-                ),
-            ),
-        ),
-    )
-
-    # Greet with happy expression
-    vtube_connected = VTUBE.connected
-    if vtube_connected:
-        await VTUBE.set_expression("smile")
-
-    if is_returning_user:
-        opening_hint = "A returning user just connected. Welcome them back warmly — you remember things about them. Keep it short and cheerful."
-    else:
-        opening_hint = "A brand new user just connected. Introduce yourself as AURA with a warm, cute, short greeting. Make them feel welcome."
-
-    await session.generate_reply(instructions=opening_hint)
-
 class AURAAssistant(Agent):
-    def __init__(self, conversation_id=None, user_identity: str = "aura-user", system_prompt: str = AURA_BASE_PROMPT, initial_chat_ctx: "llm.ChatContext | None" = None,) -> None:
-        super().__init__(instructions=system_prompt, chat_ctx=initial_chat_ctx)
-        self._conversation_id     = conversation_id
-        self._user_identity       = user_identity
-        self._vtube_connected     = False
-        self._last_user_text      = ""
+    def __init__(
+        self,
+        *,
+        conversation_id=None,
+        user_identity: str = "aura-user",
+        system_prompt: str = AURA_BASE_PROMPT,
+        initial_chat_ctx: "llm.ChatContext | None" = None,
+        llm: llm.LLM,
+        tts: tts.TTS,
+    ) -> None:
+        super().__init__(instructions=system_prompt, chat_ctx=initial_chat_ctx, llm=llm, tts=tts)
+        self._conversation_id      = conversation_id
+        self._user_identity        = user_identity
+        self._vtube_connected      = False
+        self._last_user_text       = ""
+        self._last_activity_time   = asyncio.get_event_loop().time()
+        self._last_aura_spoke_time = asyncio.get_event_loop().time()
+
+    @llm.function_tool(description="Recalls specific facts or memories about the user from the long-term knowledge base.")
+    async def recall_memories(self, query: Annotated[str, "The specific topic or fact to recall about the user"] = ""):
+        """Called when you need to remember something specific about the user."""
+        logger.info(f"AURA is recalling memories for query: '{query}'")
+        memories = await memory_service.get_long_term_memories(identity=self._user_identity, limit=20)
+        if not memories.strip():
+            return "No specific memories found for this user yet."
+        return f"Here are the memories I found:\n{memories}"
+
+
+    def reset_activity(self):
+        self._last_activity_time = asyncio.get_event_loop().time()
 
     async def on_enter(self):
         self._vtube_connected = await VTUBE.connect()
@@ -455,23 +421,37 @@ class AURAAssistant(Agent):
         BRIDGE.set_room(None)
 
         # Extract the long term memory and save memory to database if session ended
-        if self._conversation_id and OPENROUTER_KEY:
+        if self._conversation_id:
             logger.info(f"Session ended for '{self._user_identity}'. Extracting long-term memory...")
-            asyncio.create_task(
-                extract_and_save_memory(
-                    identity=self._user_identity,
-                    conversation_id=self._conversation_id,
-                    openrouter_key=OPENROUTER_KEY,
-                )
+            await extract_and_save_memory(
+                identity=self._user_identity,
+                conversation_id=self._conversation_id,
             )
+
+    async def on_user_turn_started(self) -> None:
+        self.reset_activity()
 
     # Set last user message when user done talking
     async def on_user_turn_completed(self, turn_ctx: llm.ChatContext, new_message: llm.ChatMessage) -> None:
-        self._last_user_text = new_message.text_content or ""
+        self.reset_activity()
+        text = new_message.text_content or ""
+        self._last_user_text = text
+        
+        # Eagerly save user message to DB so it's not lost on disconnect
+        if self._conversation_id:
+             asyncio.create_task(memory_service.add_interaction(
+                  conversation_id=self._conversation_id,
+                  user_text=text,
+                  assistant_text=None,
+                  user_emotion="neutral",
+                  assistant_emotion=None
+             ))
+        
         await super().on_user_turn_completed(turn_ctx, new_message)
 
     async def llm_chat(self, chat_ctx, **kwargs):
         """Override to detect emotion and trigger expressions"""
+        self.reset_activity()
         # Start of turn: clear animation logs to allow fresh winks/tongues
         await VTUBE.start_turn()
 
@@ -484,6 +464,8 @@ class AURAAssistant(Agent):
 
     # Set last assistant message when assistant done talking and add to database
     async def on_agent_speech_committed(self, msg: llm.ChatMessage) -> None:
+        self.reset_activity()
+        self._last_aura_spoke_time = asyncio.get_event_loop().time()
         assistant_text = msg.text_content or ""
 
         if self._conversation_id and self._last_user_text and assistant_text:
@@ -507,5 +489,183 @@ class AURAAssistant(Agent):
 
             self._last_user_text = ""
 
+
+# Called When user join the room
+async def voice_session(ctx: agents.JobContext):
+    logger.info(f"Voice session starting (Job assigned) for room: {ctx.room.name}")
+    await ctx.connect()
+    logger.info(f"User connected: {ctx.room.name}")
+
+    vtube_connected = await VTUBE.connect()
+    if vtube_connected:
+        logger.info("VTube Studio connected")
+
+    user_identity = "aura-user"  
+    conversation_id_str = None
+
+    # Wait up to 30s for the participant to join so we get the correct identity
+    for i in range(300): # 30s (0.1s steps)
+        # 1. Check Job Participant (Direct)
+        if ctx.job and getattr(ctx.job, 'participant', None):
+            user_identity = ctx.job.participant.identity or user_identity
+            if ctx.job.participant.metadata:
+                try:
+                    meta = json.loads(ctx.job.participant.metadata)
+                    conversation_id_str = meta.get("conversation_id")
+                    logger.info(f"Identity from Job Participant: {user_identity}")
+                except: pass
+            break
+        
+        # 2. Check Room Participants
+        participants = [p for p in ctx.room.remote_participants.values() if not p.identity.startswith("agent-")]
+        if participants:
+            p = participants[0]
+            user_identity = p.identity
+            if p.metadata:
+                try:
+                    meta = json.loads(p.metadata)
+                    conversation_id_str = meta.get("conversation_id")
+                    logger.info(f"Identity from Room Participant: {user_identity}")
+                except: pass
+            break
+        
+        if i % 10 == 0:
+            logger.info("Waiting for participant to join room...")
+        await asyncio.sleep(0.1)
+
+    logger.info(f"Resolved identity: '{user_identity}', conversation: '{conversation_id_str}'")
+
+    # 1. Fetch Dynamic Personality
+    settings = await memory_service.get_personality_settings()
+    custom_system_prompt = None
+    if settings:
+        custom_system_prompt = settings.get("system_prompt")
+        logger.info(f"Loaded personality settings: model={settings.get('model')}")
+
+    # 2. Fetch Long-term Memory
+    long_term_memory = await memory_service.get_long_term_memories(identity=user_identity, limit=10)
+    is_returning_user = bool(long_term_memory.strip())
+
+    if is_returning_user:
+        logger.info(f"Long-term memory loaded for '{user_identity}'")
+    else:
+        logger.info(f"No long-term memory found for {user_identity}")
+
+    # 3. Build System Prompt (Always New conversation for voice session in historical pattern)
+    conversation_id = await memory_service.create_conversation(title=f"Voice Session: {user_identity}")
+    if conversation_id:
+        logger.info(f"Memory: new conversation {conversation_id} for {user_identity}")
+    else:
+        logger.warning("Memory: Can't connect to Supabase, running without memory")
+
+    base_prompt = custom_system_prompt if custom_system_prompt else AURA_BASE_PROMPT
+    # Historical version injected long term memory into the prompt builder
+    system_prompt = build_system_prompt(long_term_memory)
+    if is_returning_user:
+        logger.info(f"Memory injected into system prompt ({len(long_term_memory)} chars)")
+        # Debug print first fact
+        first_line = long_term_memory.strip().split('\n')[0]
+        logger.info(f"Sample fact: {first_line}")
+
+    initial_chat_ctx = llm.ChatContext()
+    
+    BRIDGE.set_room(ctx.room)
+
+    connector = aiohttp.TCPConnector(use_dns_cache=True, keepalive_timeout=120)
+    stt_session = aiohttp.ClientSession(connector=connector)
+    
+    stt_plugin = deepgram.STT(
+        model="nova-3",
+        language="multi",
+        detect_language=False,
+        smart_format=True,
+        interim_results=True,
+        api_key=DEEPGRAM_KEY,
+        http_session=stt_session,
+        keyterm=["moshi", "desu", "konnichiwa", "nihongo", "arigato", "sugoi", "hello", "hey", "AURA"]
+    )
+
+    # Use model from settings if available
+    llm_model = settings.get("model", OPENROUTER_MODEL) if settings else OPENROUTER_MODEL
+    
+    # 1.1 Local plugin creation
+    llm_plugin = openai.LLM(
+        model=llm_model,
+        base_url=OPENROUTER_BASE_URL,
+        api_key=OPENROUTER_KEY,
+    )
+
+    agent_instance = AURAAssistant(
+        conversation_id=conversation_id,
+        user_identity=user_identity,
+        system_prompt=system_prompt,
+        initial_chat_ctx=initial_chat_ctx,
+        llm=llm_plugin,
+        tts=TTS_PLUGIN,
+    )
+
+    session = AgentSession(
+        stt=stt_plugin,
+        llm=llm_plugin,
+        tts=TTS_PLUGIN,
+        vad=silero.VAD.load(
+            min_silence_duration=0.4,
+            min_speech_duration=0.1
+        ),
+    )
+
+    async def spontaneous_pulse():
+        """Occasionally speaks if the user is quiet too long."""
+        while True:
+            await asyncio.sleep(60) 
+            # We skip pulse logic in this simple restoration to avoid overhead
+            # The previous attempt had it but it was a bit complex
+            break
+
+    await session.start(
+        room=ctx.room,
+        agent=agent_instance,
+    )
+
+    if vtube_connected:
+        await VTUBE.set_expression("happy")
+
+    instruction = (
+        "Greet the user warmly as someone you already know. "
+        "Briefly acknowledge you remember them. Keep it to 1-2 sentences."
+        if is_returning_user else
+        "Greet the user with a polite and helpful AURA introduction. "
+        "Example: 'Hello! I'm AURA, your personal AI assistant. How can I help you today?'"
+    )
+
+    # Wait for the background TTS warmup to finish before speaking.
+    # Awaiting the event allows the loop to stay responsive for STT/RTC heartbeats.
+    if not _tts_ready_event.is_set():
+        logger.info("Waiting for background TTS warmup to finish...")
+        try:
+            await asyncio.wait_for(_tts_ready_event.wait(), timeout=60.0)
+        except asyncio.TimeoutError:
+            logger.warning("TTS warmup timed out after 60s, proceeding anyway...")
+
+    if ctx.room.remote_participants:
+        logger.info("TTS ready, generating greeting via LLM")
+        try:
+            await session.generate_reply(instructions=instruction)
+        except Exception as e:
+            logger.warning(f"Could not deliver dynamic greeting: {e}")
+
+    # Wait for session to finish
+    try:
+        await asyncio.Event().wait()
+    except asyncio.CancelledError:
+        logger.info("Voice session cancelled by user/room.")
+    finally:
+        await stt_session.close()
+
 if __name__ == "__main__":
-    agents.cli.run_app(server)
+    agents.cli.run_app(
+        agents.WorkerOptions(
+            entrypoint_fnc=voice_session,
+            prewarm_fnc=prewarm,
+        )
+    )

@@ -1,19 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { AvatarRenderer } from './AvatarRenderer'
 
-function getOrCreateIdentity() {
-    const KEY = 'aura_user_identity'
-    let id = localStorage.getItem(KEY)
+import { getOrCreateIdentity } from '../lib/user'
 
-    if (!id) {
-        id = `user-${crypto.randomUUID().slice(0, 8)}`
-        localStorage.setItem(KEY, id)
-    }
-
-    return id
-}
-
-export default function CallOverlay({ onClose }) {
+export default function CallOverlay({ onClose, conversationId }) {
     const [status, setStatus] = useState('connecting')
     const [elapsed, setElapsed] = useState(0)
     const roomRef = useRef(null)
@@ -22,6 +12,7 @@ export default function CallOverlay({ onClose }) {
     const audioCtxRef = useRef(null)
     const analyserRef = useRef(null)
     const lipRafRef = useRef(null)
+    const speakTimeoutRef = useRef(null)
 
     // ─── Connect to LiveKit ──────────────────────
     useEffect(() => {
@@ -33,19 +24,19 @@ export default function CallOverlay({ onClose }) {
 
         const connect = async () => {
             try {
-                // Dynamically import to avoid bundling when not needed
                 const { Room, RoomEvent, Track } = await import('livekit-client')
-
                 const identity = getOrCreateIdentity()
 
                 // Fetch token from token server
-                const res = await fetch(`http://${window.location.hostname}:8082/getToken?identity=${encodeURIComponent(identity)}`)
+                let url = `http://${window.location.hostname}:8082/getToken?room=aura-room&identity=${encodeURIComponent(identity)}`
+                if (conversationId) url += `&conversation_id=${encodeURIComponent(conversationId)}`
+
+                const res = await fetch(url)
                 if (!res.ok) throw new Error(`Token server error: ${res.status}`)
-                const { token, url } = await res.json()
+                const { token, url: lkUrl } = await res.json()
 
                 if (cancelled) return
 
-                // Connect to room
                 const room = new Room()
                 roomRef.current = room
 
@@ -58,22 +49,30 @@ export default function CallOverlay({ onClose }) {
                         const analyser = ctx.createAnalyser()
                         analyser.fftSize = 2048
                         analyser.smoothingTimeConstant = 0.8
-                        const src = ctx.createMediaStreamSource(
-                            new MediaStream([track.mediaStreamTrack])
-                        )
+                        const src = ctx.createMediaStreamSource(new MediaStream([track.mediaStreamTrack]))
                         src.connect(analyser)
                         analyserRef.current = analyser
 
                         const buf = new Float32Array(analyser.fftSize)
                         const tick = () => {
+                            if (cancelled) return
                             lipRafRef.current = requestAnimationFrame(tick)
                             analyser.getFloatTimeDomainData(buf)
                             let sum = 0
                             for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i]
                             const rms = Math.sqrt(sum / buf.length)
-                            avatarRef.current?.setMouthOpen(
-                                rms > 0.008 ? Math.min(0.55, rms * 10) : 0
-                            )
+                            const active = rms > 0.008
+                            avatarRef.current?.setMouthOpen(active ? Math.min(0.55, rms * 10) : 0)
+
+                            if (active) {
+                                if (speakTimeoutRef.current) { clearTimeout(speakTimeoutRef.current); speakTimeoutRef.current = null }
+                                avatarRef.current?.setSpeaking(true)
+                            } else if (!speakTimeoutRef.current) {
+                                speakTimeoutRef.current = setTimeout(() => {
+                                    avatarRef.current?.setSpeaking(false)
+                                    speakTimeoutRef.current = null
+                                }, 600)
+                            }
                         }
                         tick()
                     }
@@ -83,19 +82,16 @@ export default function CallOverlay({ onClose }) {
                     track.detach().forEach((el) => el.remove())
                 })
 
-                // ── Expression events from Python avatar_bridge.py ──────────
                 room.on(RoomEvent.DataReceived, (payload) => {
                     try {
                         const msg = JSON.parse(new TextDecoder().decode(payload))
                         if (msg.type === 'expression') {
                             avatarRef.current?.setExpression(msg.expressions, msg.duration)
                         }
-                    } catch {
-                        // malformed payload — silently ignore
-                    }
+                    } catch { }
                 })
 
-                await room.connect(url, token)
+                await room.connect(lkUrl, token)
                 await room.localParticipant.setMicrophoneEnabled(true)
 
                 if (!cancelled) {
@@ -117,11 +113,12 @@ export default function CallOverlay({ onClose }) {
             window.removeEventListener('beforeunload', handleUnload)
             cleanup()
         }
-    }, [])
+    }, [conversationId])
 
     const cleanup = useCallback(() => {
         if (timerRef.current) clearInterval(timerRef.current)
         if (lipRafRef.current) cancelAnimationFrame(lipRafRef.current)
+        if (speakTimeoutRef.current) { clearTimeout(speakTimeoutRef.current); speakTimeoutRef.current = null }
         if (audioCtxRef.current) { audioCtxRef.current.close(); audioCtxRef.current = null }
         if (roomRef.current) {
             roomRef.current.disconnect()
@@ -141,48 +138,53 @@ export default function CallOverlay({ onClose }) {
     const vh = window.innerHeight
 
     return (
-        // Full-screen container — avatar fills the whole background,
-        // controls float as an overlay on the right side (same as AIRI).
-        <div className="fixed inset-0 z-50 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
+        <div className="fixed inset-0 z-50 bg-white/95 backdrop-blur-xl animate-in fade-in duration-500">
+            {/* Background Branding */}
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-[0.03]">
+                <h1 className="text-[20vw] font-black tracking-tighter">PROJECT AURA</h1>
+            </div>
 
-            {/* ── Live2D Avatar — full-screen canvas ── */}
-            <AvatarRenderer ref={avatarRef} width={vw} height={vh} />
+            {/* ── Live2D Avatar — centered ── */}
+            <div className="absolute inset-0 flex items-center justify-center">
+                <AvatarRenderer ref={avatarRef} width={window.innerWidth} height={window.innerHeight} />
+            </div>
 
-            {/* ── Controls — overlaid panel, right side ── */}
-            <div className="absolute right-10 top-1/2 -translate-y-1/2 flex flex-col items-center gap-6
-                            bg-slate-900/60 backdrop-blur-sm rounded-2xl px-8 py-6 shadow-xl">
-                <h2 className="text-white text-3xl font-bold">AURA</h2>
+            {/* ── Controls — bottom center ── */}
+            <div className="absolute bottom-12 left-1/2 -translate-x-1/2 flex flex-col items-center gap-8 w-full max-w-md px-6">
+                <div className="text-center">
+                    <h2 className="text-slate-900 text-3xl font-black tracking-tight mb-1 uppercase">Project AURA</h2>
+                    <p className="text-primary font-black tracking-[0.3em] text-[10px] uppercase">
+                        {status === 'connecting' && 'Establishing Connection...'}
+                        {status === 'connected' && `Live Interaction — ${formatTime(elapsed)}`}
+                        {status === 'error' && 'Neural Link Failed'}
+                    </p>
+                </div>
 
-                <p className="text-primary/80 text-sm font-medium">
-                    {status === 'connecting' && 'Connecting...'}
-                    {status === 'connected' && formatTime(elapsed)}
-                    {status === 'error' && 'Connection failed'}
-                </p>
+                <div className="flex items-center gap-6">
+                    {/* Visualizer */}
+                    {status === 'connected' && (
+                        <div className="flex items-end gap-1.5 h-12">
+                            {[...Array(12)].map((_, i) => (
+                                <div key={i} className="w-1.5 bg-primary/20 rounded-full animate-bounce"
+                                    style={{ height: `${20 + Math.random() * 80}%`, animationDuration: `${0.6 + Math.random()}s` }} />
+                            ))}
+                        </div>
+                    )}
 
-                {/* Waveform */}
-                {status === 'connected' && (
-                    <div className="flex gap-1">
-                        {[0, 1, 2, 3, 4].map((i) => (
-                            <div
-                                key={i}
-                                className="w-1 bg-primary rounded-full"
-                                style={{
-                                    height: `${12 + Math.random() * 20}px`,
-                                    animation: `pulse ${0.4 + i * 0.1}s ease-in-out infinite alternate`,
-                                }}
-                            />
-                        ))}
+                    {/* Hangup */}
+                    <button
+                        type="button"
+                        onClick={handleHangup}
+                        className="w-20 h-20 rounded-full bg-slate-900 hover:bg-red-600 flex items-center justify-center text-white shadow-2xl transition-all duration-300 hover:scale-110 active:scale-95 group cursor-pointer"
+                    >
+                        <span className="material-icons-round text-4xl group-hover:rotate-90 transition-transform">close</span>
+                    </button>
+
+                    {/* Placeholder for future mic toggle/settings */}
+                    <div className="w-12 h-12 rounded-full border border-slate-200 flex items-center justify-center text-slate-400 opacity-50">
+                        <span className="material-icons-round">mic</span>
                     </div>
-                )}
-
-                {/* Hangup */}
-                <button
-                    type="button"
-                    onClick={handleHangup}
-                    className="w-16 h-16 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center text-white shadow-lg shadow-red-500/30 transition-all cursor-pointer"
-                >
-                    <span className="material-icons-round text-3xl">call_end</span>
-                </button>
+                </div>
             </div>
         </div>
     )
