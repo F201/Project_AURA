@@ -18,11 +18,19 @@ dependencies:
       - librosa
       - numpy
       - python-dotenv
-      # Loosened LiveKit constraints to fix pip resolution
+      - pyvts==0.3.3
+      - aiohttp
+      - httpx
+      - anthropic
+      - # Loosened LiveKit constraints for macOS Apple Silicon
       - livekit-agents[silero,turn-detector]
       - livekit-plugins-noise-cancellation
       - livekit-plugins-deepgram
       - livekit-plugins-cartesia
       - livekit-plugins-openai
       - livekit-api
+      - opencv-python
+      - supabase==2.28.0
+      - supabase-auth==2.28.0
+      - supabase-functions==2.28.0
       - -e ./lib/faster-qwen3-tts

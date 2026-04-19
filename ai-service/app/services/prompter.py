@@ -7,13 +7,14 @@ class Prompter:
     def build(self, message: str, context: dict = None) -> list:
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        # Pull live settings — custom system_prompt overrides the hardcoded persona
-        db_settings = settings_service.get_settings()
-        custom_prompt = (db_settings.get("system_prompt") or "").strip()
-        persona = custom_prompt if custom_prompt else persona_engine.get_persona()
+        # Custom system_prompt from admin panel overrides the hardcoded persona
+        db = settings_service.get_settings()
+        custom = (db.get("system_prompt") or "").strip()
+        persona = custom if custom else persona_engine.get_persona()
 
         formatted_system = (
-            f"You are AURA (Advanced Universal Responsive Avatar), the spirited AI steward of the ASE Lab.\n\n"
+            "You are AURA (Advanced Universal Responsive Avatar), "
+            "the spirited AI steward of the ASE Lab.\n\n"
             f"{persona}\n\n"
             f"**Context:**\n- Current Time: {current_time}"
         )

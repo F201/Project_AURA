@@ -1,62 +1,50 @@
-import { useNavigate } from 'react-router-dom'
-
 export default function Sidebar({ conversations = [], activeId, onSelect, onNewChat }) {
-    const navigate = useNavigate()
-
     // Group conversations by date
     const grouped = groupByDate(conversations)
 
     return (
-        <aside className="w-72 bg-white border-r border-slate-200 flex flex-col">
+        <aside className="w-full h-full flex flex-col bg-transparent">
             {/* Header */}
             <div className="p-6">
-                <div className="flex items-center justify-between mb-8">
-                    <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-full aura-gradient flex items-center justify-center text-white shadow-lg shadow-primary/20">
-                            <span className="material-icons-round text-sm">wb_sunny</span>
-                        </div>
-                        <span className="font-bold text-xl tracking-tight">AURA</span>
+                <div className="flex items-center gap-3 mb-8">
+                    <div className="w-9 h-9 rounded-full aura-gradient flex items-center justify-center text-white shadow-lg shadow-primary/20">
+                        <span className="material-icons-round text-sm">wb_sunny</span>
                     </div>
-                    <button
-                        type="button"
-                        onClick={() => navigate('/admin')}
-                        className="p-1 hover:bg-slate-100 rounded cursor-pointer"
-                        title="Admin Dashboard"
-                    >
-                        <span className="material-icons-round text-slate-400">dashboard</span>
-                    </button>
+                    <span className="font-bold text-xl tracking-tight text-white/90">Project AURA</span>
                 </div>
 
                 <button
                     type="button"
                     onClick={onNewChat}
-                    className="w-full py-3 px-4 bg-primary hover:bg-primary/90 text-white rounded-lg flex items-center justify-center gap-2 font-semibold transition-all shadow-lg shadow-primary/20 group cursor-pointer"
+                    className="w-full py-3.5 px-4 bg-primary hover:bg-primary/90 text-white rounded-xl flex items-center justify-center gap-2 font-bold transition-all shadow-lg shadow-primary/20 group cursor-pointer"
                 >
                     <span className="material-icons-round group-hover:rotate-90 transition-transform">add</span>
-                    New Chat
+                    New Context
                 </button>
             </div>
 
             {/* Conversation list */}
-            <div className="flex-1 overflow-y-auto custom-scrollbar px-4 space-y-6">
+            <div className="flex-1 overflow-y-auto custom-scrollbar-dark px-4 space-y-8">
                 {Object.entries(grouped).map(([label, convos]) => (
                     <div key={label}>
-                        <h3 className="px-2 mb-3 text-xs font-bold uppercase tracking-widest text-slate-400">{label}</h3>
-                        <div className="space-y-1">
+                        <h3 className="px-3 mb-4 text-[10px] font-black uppercase tracking-[0.2em] text-white/20">{label}</h3>
+                        <div className="space-y-1.5">
                             {convos.map((c) => (
                                 <button
                                     key={c.id}
                                     type="button"
                                     onClick={() => onSelect(c.id)}
-                                    className={`w-full group flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all text-left cursor-pointer ${c.id === activeId
-                                            ? 'bg-primary/5 text-primary border border-primary/10'
-                                            : 'hover:bg-slate-50 text-slate-600 border border-transparent'
+                                    className={`w-full group flex items-center gap-3 px-3 py-3 rounded-xl transition-all text-left cursor-pointer border ${c.id === activeId
+                                        ? 'bg-white/5 text-primary border-white/5 shadow-inner'
+                                        : 'hover:bg-white/[0.03] text-slate-400 border-transparent hover:border-white/5'
                                         }`}
                                 >
-                                    <span className={`material-icons-round text-sm ${c.id === activeId ? '' : 'text-slate-300'}`}>
-                                        chat_bubble_outline
+                                    <span className={`material-icons-round text-sm ${c.id === activeId ? 'text-primary' : 'text-slate-600'}`}>
+                                        {c.id === activeId ? 'auto_awesome' : 'chat_bubble_outline'}
                                     </span>
-                                    <span className="text-sm font-medium truncate">{c.title}</span>
+                                    <span className={`text-[13px] font-semibold truncate ${c.id === activeId ? 'text-white' : ''}`}>
+                                        {c.title}
+                                    </span>
                                 </button>
                             ))}
                         </div>
@@ -64,19 +52,22 @@ export default function Sidebar({ conversations = [], activeId, onSelect, onNewC
                 ))}
 
                 {conversations.length === 0 && (
-                    <p className="text-center text-sm text-slate-400 mt-8">No conversations yet</p>
+                    <div className="flex flex-col items-center justify-center py-10 opacity-20">
+                        <span className="material-icons-round text-4xl mb-2">forum</span>
+                        <p className="text-xs font-bold uppercase tracking-widest">Empty Space</p>
+                    </div>
                 )}
             </div>
 
             {/* Footer */}
-            <div className="p-4 mt-auto border-t border-slate-100">
-                <div className="flex items-center gap-3 p-3">
-                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-primary-light flex items-center justify-center text-white font-bold text-sm">
+            <div className="p-4 mt-auto border-t border-white/5 bg-slate-950/20">
+                <div className="flex items-center gap-3 p-3 rounded-2xl bg-white/[0.02]">
+                    <div className="w-10 h-10 rounded-full aura-gradient flex items-center justify-center text-white font-bold text-sm shadow-md">
                         U
                     </div>
                     <div className="flex flex-col items-start overflow-hidden">
-                        <span className="text-sm font-bold truncate">User</span>
-                        <span className="text-xs text-slate-400">Premium Plan</span>
+                        <span className="text-[13px] font-bold text-white truncate text-shadow-sm">Interface User</span>
+                        <p className="text-[10px] font-black text-primary/60 uppercase tracking-widest">Premium Status</p>
                     </div>
                 </div>
             </div>
