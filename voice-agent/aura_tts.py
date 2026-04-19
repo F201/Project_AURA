@@ -185,12 +185,52 @@ class AuraTTS(tts.TTS):
                 )
                 audio_data = _trim_silence(audio_np[0])
 
-                # Convert float32 -> int16 PCM bytes
                 audio_int16 = (audio_data * 32767).clip(-32768, 32767).astype(np.int16)
                 return audio_int16.tobytes()
             except Exception as e:
                 logger.error(f"TTS generation failed: {e}")
                 return b""
+
+    async def _generate_audio_stream_with_lang_async(self, text: str, language: str):
+        """Generate audio in streaming chunks using an async generator."""
+        if not text or not text.strip():
+            return
+            
+        chars_per_sec = 4.0 if language == "Japanese" else 12.0
+        max_new_tokens = int(len(text) / chars_per_sec * 2.5 * 12)
+        max_new_tokens = max(12, min(max_new_tokens, self._opts.max_seq_len - 100))
+
+        loop = asyncio.get_event_loop()
+        q = asyncio.Queue()
+
+        def _worker():
+            try:
+                with self._gen_lock:
+                    gen = self._model.generate_voice_clone_streaming(
+                        text=text,
+                        language=language,
+                        ref_audio=self._opts.ref_audio,
+                        ref_text=self._opts.ref_text,
+                        max_new_tokens=max_new_tokens,
+                        chunk_size=8,
+                        append_silence=False,
+                        repetition_penalty=1.15,
+                    )
+                    for audio_np, sr, timing in gen:
+                        audio_int16 = (audio_np * 32767).clip(-32768, 32767).astype(np.int16)
+                        loop.call_soon_threadsafe(q.put_nowait, audio_int16.tobytes())
+                loop.call_soon_threadsafe(q.put_nowait, None)
+            except Exception as e:
+                logger.error(f"TTS stream generation failed: {e}")
+                loop.call_soon_threadsafe(q.put_nowait, None)
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+        while True:
+            chunk = await q.get()
+            if chunk is None:
+                break
+            yield chunk
 
     def synthesize(self, text: str, *, conn_options=None) -> "tts.ChunkedStream":
         return _AuraChunkedStream(self, text, self._opts, conn_options)
@@ -251,10 +291,17 @@ class _AuraSynthesizeStream(tts.SynthesizeStream):
 
         async def _process_input():
             """Read text from the input channel and push to the tokenizer."""
+            first_text = True
             async for data in self._input_ch:
                 if isinstance(data, self._FlushSentinel):
                     token_stream.flush()
                 else:
+                    if first_text and data.strip():
+                        first_text = False
+                        start_t = getattr(self._tts_instance, "_agent_turn_start", None)
+                        if start_t:
+                            llm_ttft = time.time() - start_t
+                            logger.info(f"[Metrics] LLM Time-to-First-Token: {llm_ttft:.3f}s")
                     text = data.replace('。', '. ').replace('！', '! ').replace('？', '? ')
                     token_stream.push_text(text)
             
@@ -282,77 +329,103 @@ class _AuraSynthesizeStream(tts.SynthesizeStream):
                             output_emitter.push(np.zeros(int(1.0 * SAMPLE_RATE), dtype=np.int16).tobytes())
                             continue
 
-                        loop = asyncio.get_event_loop()
                         try:
-                            pcm_bytes = await loop.run_in_executor(
-                                None, self._tts_instance._generate_audio_with_lang, sentence, lang
-                            )
-                            
-                            if not pcm_bytes:
-                                continue
-                                
-                            duration = len(pcm_bytes) / (SAMPLE_RATE * NUM_CHANNELS * 2)
-                            
-                            # Virtual Playhead syncing
-                            now = time.time()
-                            if not hasattr(self, '_playhead') or self._playhead < now:
-                                self._playhead = now
-                                
-                            self._reset_token = getattr(self, '_reset_token', 0) + 1
-                            current_token = self._reset_token
-                                
-                            delay_until_play = self._playhead - now
-                            self._playhead += duration
-                            
                             emotions = VTUBE.detect_emotion(chunk)
+                            start_gen_time = time.time()
+                            stream_gen = self._tts_instance._generate_audio_stream_with_lang_async(sentence, lang)
                             
-                            async def _sync_expression(em_list, delay_start, dur, token):
-                                try:
-                                    if delay_start > 0:
-                                        await asyncio.sleep(delay_start)
-
-                                    if em_list:
-                                        await asyncio.gather(
-                                            VTUBE.set_expression(em_list),
-                                            BRIDGE.send_expression(em_list, dur),
-                                        )
-
-                                    await asyncio.sleep(dur + 0.3)
-                                    if getattr(self, '_reset_token', -1) == token:
-                                        await asyncio.gather(
-                                            VTUBE.reset_to_neutral(),
-                                            BRIDGE.send_neutral(),
-                                        )
-                                except asyncio.CancelledError:
-                                    # Fallback neutral on cancel to be sure
-                                    await asyncio.gather(VTUBE.reset_to_neutral(), BRIDGE.send_neutral())
-                                except Exception as e:
-                                    logger.debug(f"Sync error: {e}")
-
-                            t = asyncio.create_task(_sync_expression(emotions, delay_until_play, duration, current_token))
-                            expr_tasks.add(t)
-                            t.add_done_callback(expr_tasks.discard)
+                            first_chunk_processed = False
+                            sentence_duration = 0.0
                             
-                            output_emitter.push(pcm_bytes)
-                            logger.debug(f"Synthesized {duration:.2f}s for chunk: '{sentence[:50]}...'")
-                            
+                            async for pcm_bytes in stream_gen:
+                                if not pcm_bytes:
+                                    continue
+                                    
+                                chunk_duration = len(pcm_bytes) / (SAMPLE_RATE * NUM_CHANNELS * 2)
+                                sentence_duration += chunk_duration
+                                
+                                now = time.time()
+                                if not hasattr(self, '_playhead') or self._playhead < now:
+                                    self._playhead = now
+                                    
+                                if not first_chunk_processed:
+                                    first_chunk_processed = True
+                                    tts_ttfa = time.time() - start_gen_time
+                                    logger.info(f"[Metrics] TTS Time-to-First-Audio for sentence: {tts_ttfa:.3f}s")
+                                    
+                                    delay_until_play = max(0.0, self._playhead - now)
+                                    
+                                    self._reset_token = getattr(self, '_reset_token', 0) + 1
+                                    current_token = self._reset_token
+                                    
+                                    async def _fire_expression(em_list, delay_start):
+                                        try:
+                                            if delay_start > 0:
+                                                await asyncio.sleep(delay_start)
+                                            if em_list:
+                                                await asyncio.gather(
+                                                    VTUBE.set_expression(em_list),
+                                                    BRIDGE.send_expression(em_list, 5.0),
+                                                )
+                                        except Exception as e:
+                                            logger.debug(f"Expression trigger error: {e}")
+                                            
+                                    t_expr = asyncio.create_task(_fire_expression(emotions, delay_until_play))
+                                    expr_tasks.add(t_expr)
+                                    t_expr.add_done_callback(expr_tasks.discard)
+
+                                self._playhead += chunk_duration
+                                output_emitter.push(pcm_bytes)
+                                
+                            if first_chunk_processed:
+                                logger.debug(f"Streamed {sentence_duration:.2f}s for chunk: '{sentence[:50]}...'")
+                                # Schedule neutral reset after sentence finishes playback
+                                async def _reset_expression(delay_to_end, token):
+                                    try:
+                                        if delay_to_end > 0:
+                                            await asyncio.sleep(delay_to_end + 0.3)
+                                        if getattr(self, '_reset_token', -1) == token:
+                                            await asyncio.gather(
+                                                VTUBE.reset_to_neutral(),
+                                                BRIDGE.send_neutral(),
+                                            )
+                                    except asyncio.CancelledError:
+                                        await asyncio.gather(VTUBE.reset_to_neutral(), BRIDGE.send_neutral())
+                                    except Exception as e:
+                                        pass
+                                
+                                reset_delay = self._playhead - time.time()
+                                t_reset = asyncio.create_task(_reset_expression(reset_delay, current_token))
+                                expr_tasks.add(t_reset)
+                                t_reset.add_done_callback(expr_tasks.discard)
+                                
                         except Exception as e:
-                            logger.error(f"TTS chunk generation failed: {e}")
+                            logger.error(f"TTS chunk stream generation failed: {e}")
                             if torch.cuda.is_available():
                                 torch.cuda.empty_cache()
             finally:
-                # FINAL RESET: Cancel pending expression tasks and return to neutral
-                for t in list(expr_tasks):
-                    t.cancel()
-                if expr_tasks:
-                    await asyncio.gather(*expr_tasks, return_exceptions=True)
+                now = time.time()
+                playhead = getattr(self, '_playhead', now)
+                delay = max(0.0, playhead - now)
                 
-                try:
-                    await asyncio.gather(
-                        VTUBE.reset_to_neutral(),
-                        BRIDGE.send_neutral(),
-                    )
-                    logger.debug("Final safety reset triggered.")
-                except: pass
+                async def _final_reset():
+                    if delay > 0:
+                        await asyncio.sleep(delay + 0.3)
+                        
+                    # FINAL RESET: Cancel pending expression tasks and return to neutral
+                    for t in list(expr_tasks):
+                        t.cancel()
+                    if expr_tasks:
+                        await asyncio.gather(*expr_tasks, return_exceptions=True)
+                    
+                    try:
+                        await asyncio.gather(
+                            VTUBE.reset_to_neutral(),
+                            BRIDGE.send_neutral(),
+                        )
+                        logger.debug("Final safety reset triggered.")
+                    except: pass
+                    
+                asyncio.get_event_loop().create_task(_final_reset())
 
         await asyncio.gather(_process_input(), _synthesize())

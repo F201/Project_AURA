@@ -333,7 +333,7 @@ class VTubeController:
                 
             await asyncio.sleep(0.35)
 
-    async def inject_parameter(self, parameter_name, value):
+    async def inject_parameter(self, parameter_name, value, weight=1.0):
         """Directly inject a numerical value into a Live2D parameter."""
         if not self.connected or not self.vts:
             return False
@@ -350,7 +350,7 @@ class VTubeController:
                             {
                                 "id": parameter_name,
                                 "value": float(value),
-                                "weight": 1.0
+                                "weight": float(weight)
                             }
                         ]
                     }
@@ -407,9 +407,8 @@ class VTubeController:
         all_params_to_clear = set(self.injected_parameters.keys()) | {"TongueOut", "MouthOpen", "EyeOpenLeft", "EyeOpenRight"}
         
         for p_name in all_params_to_clear:
-            # Reset to a safe default (usually 1.0 for eyes, 0.0 for tongue/mouth)
-            default_val = 1.0 if "EyeOpen" in p_name else 0.0
-            await self.inject_parameter(p_name, default_val)
+            # Reset by returning control to tracking camera with weight=0.0
+            await self.inject_parameter(p_name, 0.0, weight=0.0)
         
         self.injected_parameters.clear()
         logger.debug("AURA successfully reset to neutral.")

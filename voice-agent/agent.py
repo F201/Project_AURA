@@ -18,6 +18,7 @@ import logging
 import threading
 import asyncio
 import aiohttp
+import time
 import json
 import openai as _openai_sdk  # raw AsyncOpenAI, not livekit.plugins.openai
 
@@ -121,9 +122,10 @@ These modify the base emotions:
 - **Mischievous Edge**: You like to playfully tease the user about what you remember about them, but you are always supportive in the end.
 - **NO NARRATIVE**: Do NOT describe your own actions in text (e.g., *winks*, *giggles*). Speak ONLY the words and use your **Expression Tags**.
 - **No Emoticons**: Use your **Expression Tags** instead of `:)`, `:3`, or kaomoji.
-- **Languages**: You ONLY speak English and Japanese. Default to English.
+- **Languages**: You can speak English and Japanese. IMPORTANT: DO NOT provide translations of your own speech (e.g. NEVER say a sentence in Japanese and then translate it to English in parentheses). Pick ONE language per response and stick to it naturally.
 
 Remember: You are AURA. Be cute, be smart, and maybe a little bit of a handful! Ehehe! ✨\
+
 """
 
 # Memory Extraction Prompt
@@ -234,6 +236,7 @@ If the facts above are not enough, or if the user asks about something you don't
     return base + "\n" + memory_block
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+# OPENROUTER_MODEL    = "google/gemini-flash-1.5-8b"  # Changed from deepseek/deepseek-v3.2 for speed
 OPENROUTER_MODEL    = "deepseek/deepseek-v3.2"
 
 def _resolve_llm_client():
@@ -262,7 +265,7 @@ if tts_type == "qwen":
         ref_text="",
         language="English",
         dtype=torch.bfloat16,
-        max_seq_len=384,
+        max_seq_len=512,
     )
     logger.info("Local Qwen3 TTS singleton created.")
 
@@ -437,6 +440,11 @@ class AURAAssistant(Agent):
         text = new_message.text_content or ""
         self._last_user_text = text
         
+        if hasattr(self.tts, "_agent_turn_start"):
+            pass
+        self.tts._agent_turn_start = time.time()
+        logger.debug("[Metrics] STT completed, triggering LLM generation...")
+        
         # Eagerly save user message to DB so it's not lost on disconnect
         if self._conversation_id:
              asyncio.create_task(memory_service.add_interaction(
@@ -448,19 +456,6 @@ class AURAAssistant(Agent):
              ))
         
         await super().on_user_turn_completed(turn_ctx, new_message)
-
-    async def llm_chat(self, chat_ctx, **kwargs):
-        """Override to detect emotion and trigger expressions"""
-        self.reset_activity()
-        # Start of turn: clear animation logs to allow fresh winks/tongues
-        await VTUBE.start_turn()
-
-        # Get response from parent
-        async for chunk in super().llm_chat(chat_ctx, **kwargs):
-            yield chunk
-        
-        # Emotion detection is now handled per-sentence in aura_tts.py
-        pass
 
     # Set last assistant message when assistant done talking and add to database
     async def on_agent_speech_committed(self, msg: llm.ChatMessage) -> None:
