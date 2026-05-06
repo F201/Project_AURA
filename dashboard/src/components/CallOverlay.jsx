@@ -13,6 +13,8 @@ export default function CallOverlay({ onClose, conversationId }) {
     const analyserRef = useRef(null)
     const lipRafRef = useRef(null)
     const speakTimeoutRef = useRef(null)
+    // Unique room per session so server-side agent always starts fresh on reconnect
+    const sessionRoomRef = useRef(`aura-room-${Date.now()}`)
 
     // ─── Connect to LiveKit ──────────────────────
     useEffect(() => {
@@ -28,7 +30,7 @@ export default function CallOverlay({ onClose, conversationId }) {
                 const identity = getOrCreateIdentity()
 
                 // Fetch token from token server
-                let url = `http://${window.location.hostname}:8082/getToken?room=aura-room&identity=${encodeURIComponent(identity)}`
+                let url = `http://${window.location.hostname}:8082/getToken?room=${encodeURIComponent(sessionRoomRef.current)}&identity=${encodeURIComponent(identity)}`
                 if (conversationId) url += `&conversation_id=${encodeURIComponent(conversationId)}`
 
                 const res = await fetch(url)
@@ -133,9 +135,6 @@ export default function CallOverlay({ onClose, conversationId }) {
     }
 
     const formatTime = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
-
-    const vw = window.innerWidth
-    const vh = window.innerHeight
 
     return (
         <div className="fixed inset-0 z-50 bg-white/95 backdrop-blur-xl animate-in fade-in duration-500">

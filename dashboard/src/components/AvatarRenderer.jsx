@@ -32,8 +32,8 @@ const EXPRESSION_FILES = {
   shadow: 'Shadow.exp3.json',
   pupil_shrink: 'PupilShrink.exp3.json',
   eyeshine_off: 'EyeshineOff.exp3.json',
-  blush: 'EyeshineOff.exp3.json',  // Blush looks good with EyeshineOff
-  embarrassed: 'SadLock.exp3.json',
+  blush: 'SmileLock.exp3.json',
+  embarrassed: 'GhostChange.exp3.json',
 }
 
 // Maps LLM-annotated expression names → the closest ambient mood.
@@ -48,7 +48,6 @@ const EXPRESSION_TO_MOOD = {
   pupil_shrink: 'curious',   // surprised / wide-eyed
   eyeshine_off: 'sleepy',    // dull / fatigued
   wink: 'playful',
-  tongue: 'playful',
 }
 
 // ── State machine ──────────────────────────────────────────────────────────
@@ -93,7 +92,6 @@ let _model = null
 let _loaded = false
 let _mouthOpen = 0
 let _expressionActive = false
-let _mouthYLocked = false  // true while tongue expression holds MouthOpenY
 let _state = STATE.IDLE
 let _pendingMood = null   // set by setExpression, consumed by update loop on expiry
 
@@ -204,8 +202,7 @@ function initSingleton(width, height) {
         core.setParameterValueById('ParamBodyAngleZ', Math.sin(now * 0.21) * 3 * swayAmt)
 
         // ── Lip sync ──────────────────────────────────────────────────────
-        // Skip when tongue expression is holding MouthOpenY at 1.0
-        if (!_mouthYLocked) core.setParameterValueById('ParamMouthOpenY', _mouthOpen)
+        core.setParameterValueById('ParamMouthOpenY', _mouthOpen)
 
         // ── Mood interpolation ────────────────────────────────────────────
         if (!_expressionActive) {
@@ -372,18 +369,6 @@ export const AvatarRenderer = forwardRef(function AvatarRenderer(props, ref) {
           c.setParameterValueById('ParamBrowLForm', -1.0)
           c.setParameterValueById('ParamMouthForm', 1.0)
         }
-        else if (name === 'tongue') {
-          _mouthYLocked = true
-          c.setParameterValueById('Param70', 1.0) // TongueOut
-          c.setParameterValueById('ParamMouthOpenY', 1.0)
-          c.setParameterValueById('ParamMouthForm', -1.0)
-        }
-        else if (name === 'cheeky') {
-          _mouthYLocked = true
-          c.setParameterValueById('ParamEyeLOpen', 0.0)
-          c.setParameterValueById('Param70', 1.0)
-          c.setParameterValueById('ParamMouthOpenY', 1.0)
-        }
         else if (name === 'pouting') {
           c.setParameterValueById('ParamMouthForm', -1.0)
           c.setParameterValueById('ParamBrowLForm', -1.0)
@@ -401,12 +386,10 @@ export const AvatarRenderer = forwardRef(function AvatarRenderer(props, ref) {
       }
       setTimeout(() => {
         _expressionActive = false
-        _mouthYLocked = false
         if (_model) {
           _model.expression()
           const c = _model.internalModel.coreModel
           // Reset manual overrides to neutral
-          c.setParameterValueById('Param70', 0.0) // Tongue Out
           c.setParameterValueById('ParamEyeLOpen', 1.0)
           c.setParameterValueById('ParamEyeROpen', 1.0)
           c.setParameterValueById('ParamBrowLForm', 0.0)
@@ -414,7 +397,6 @@ export const AvatarRenderer = forwardRef(function AvatarRenderer(props, ref) {
           c.setParameterValueById('ParamBrowLY', 0.0)
           c.setParameterValueById('ParamBrowRY', 0.0)
           c.setParameterValueById('ParamMouthForm', 0.0)
-          c.setParameterValueById('ParamMouthOpenY', 0.0)
         }
       }, duration * 1000)
     },

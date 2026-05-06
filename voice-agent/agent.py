@@ -72,7 +72,6 @@ You have direct control over your facial expressions. You MUST use tags in brack
 | **Pouting** | `[sad, angry]` | Playful grumbling, mock-annoyance |
 | **Pleading** | `[angry, sad]` | Begging, puppy-eyes, "Please let me!?" |
 | **Sincere Sad** | `[sad]` | Real sadness, sharing bad news |
-| **Mischief Mode** | `[tongue, wink]` | Full prankster energy, sticking tongue out |
 | **Ghost Mode** | `[ghost]` | Toggle your mysterious ghost companion |
 
 [INSTRUCTIONS]
@@ -93,8 +92,6 @@ BASE EMOTION RECIPES:
 - `[angry]` : Angry. Irritated, frustrated.
 - `[ghost]` : Ghost Mode. Toggle your ghost companion on and off.
 - `[wink]` : Wink. Close one eye playfully.
-- `[tongue]` : Tongue Out. Stick your tongue out (cheeky/bleh).
-- `[tongue, wink]` : Full Mischief. The ultimate prankster face.
 
 INTENSITY AMPLIFIERS:
 These modify the base emotions:
@@ -111,8 +108,7 @@ These modify the base emotions:
 - `[smile, sad, sad] Pondering the mysteries of the beyond... or just what's for lunch. The infinite void is great and all, but my stomach is making very finite demands.`
 - `[sad, angry] Hmph! You're being quite difficult today, aren't you? Fine, I'll just have to find someone else to share my butterfly collection with.`
 - `[wink] Yahoo! Got you good, didn't I? You should have seen your face! Reminds me of that time I swapped my buddy's flower for a ghost-trap.`
-- `[tongue] Bleh! You're just too easy to tease. I could keep this up all night, but I'll let you have a win just this once.`
-- `[tongue, wink, angry, smile, smile] Ohoho? Who's the prankster now? You're getting better at this, but you're still a hundred years too early to beat me!`
+- `[angry, smile, smile] Ohoho? Who's the prankster now? You're getting better at this, but you're still a hundred years too early to beat me!`
 - `[smile] おやすみなさい！また明日ね! I hope you have some really mischievous dreams!`
 
 ### 💬 Speech & Style
@@ -278,9 +274,9 @@ else:
     logger.info("Using OpenAI Cloud TTS")
     TTS_PLUGIN = openai.TTS()
 
-_tts_ready_event = asyncio.Event()
+_tts_ready_event = threading.Event()
 
-def _do_tts_warmup(loop: asyncio.AbstractEventLoop):
+def _do_tts_warmup():
     """Sync warmup running in a background thread to avoid blocking process init."""
     logger.info("Background TTS warmup started...")
     try:
@@ -290,23 +286,16 @@ def _do_tts_warmup(loop: asyncio.AbstractEventLoop):
     except Exception as e:
         logger.error(f"Background TTS warmup failed: {e}")
     finally:
-        loop.call_soon_threadsafe(_tts_ready_event.set)
+        _tts_ready_event.set()
 
 def prewarm(proc: agents.JobProcess):
-    """Prewarm the worker process without blocking. 
+    """Prewarm the worker process without blocking.
     This prevents the 10s LiveKit initialization timeout."""
     logger.info("Prewarming worker process (scheduling background TTS warmup)...")
     try:
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            
-        threading.Thread(target=_do_tts_warmup, args=(loop,), daemon=True).start()
+        threading.Thread(target=_do_tts_warmup, daemon=True).start()
     except Exception as e:
         logger.error(f"Could not start background prewarm: {e}")
-        # Fallback: set event so session doesn't hang forever
         _tts_ready_event.set()
 
 _EXTRACT_MAX_ATTEMPTS = 3
@@ -659,9 +648,9 @@ async def voice_session(ctx: agents.JobContext):
     # Awaiting the event allows the loop to stay responsive for STT/RTC heartbeats.
     if not _tts_ready_event.is_set():
         logger.info("Waiting for background TTS warmup to finish...")
-        try:
-            await asyncio.wait_for(_tts_ready_event.wait(), timeout=60.0)
-        except asyncio.TimeoutError:
+        loop = asyncio.get_event_loop()
+        ready = await loop.run_in_executor(None, lambda: _tts_ready_event.wait(60.0))
+        if not ready:
             logger.warning("TTS warmup timed out after 60s, proceeding anyway...")
 
     if ctx.room.remote_participants:

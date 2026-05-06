@@ -49,9 +49,7 @@ class VTubeController:
             "影": "Shadow",
             "瞳孔": "Pupil Shrink",
             "wink": "EyeOpenLeft", # Parameter, but also used as feature key
-            "tongue": "TongueOut", # Parameter
             "ウインク": "wink",
-            "べー": "tongue"
         }
 
         # Bilingual emotion keywords
@@ -65,7 +63,6 @@ class VTubeController:
             "eyeshine_off": ["deadface", "disappointed", "uncool", "serious", "cold", "empty"],
             "pupil_shrink": ["prank", "mischief", "cheeky", "teasing", "silly", "surprise", "surprised"],
             "wink": ["wink", "blink", "winked", "winking", "ウインク"],
-            "tongue": ["tongue", "bleh", "cheeky", "sticking out", "べー"]
         }
 
         if not self.is_enabled:
@@ -86,8 +83,6 @@ class VTubeController:
             "EyeOpenRight": "wink",
             "BrowLeftY": "wink",
             "MouthSmile": "wink",
-            "TongueOut": "tongue",
-            "MouthOpen": "tongue"
         }
 
     async def connect(self):
@@ -213,7 +208,7 @@ class VTubeController:
             logger.info("Disconnected from VTube Studio")
     
     BASE_EMOTIONS = ["happy", "sad", "smile", "angry", "ghost", "ghost_nervous"]
-    FEATURES = ["wink", "tongue"]
+    FEATURES = ["wink"]
     AMPLIFIERS = ["shadow", "eyeshine_off", "pupil_shrink"]
     
     # Allowed multi-base combos (order-independent)
@@ -312,24 +307,13 @@ class VTubeController:
             if expr == "wink" and "wink" not in recent_features:
                 # Natural Wink: Close left eye, lower left brow, smile more
                 await self.inject_parameter("EyeOpenLeft", 0.0)
-                await self.inject_parameter("BrowLeftY", 0.0) 
+                await self.inject_parameter("BrowLeftY", 0.0)
                 await self.inject_parameter("MouthSmile", 1.0)
                 self.injected_parameters["EyeOpenLeft"] = 0.0
                 self.injected_parameters["BrowLeftY"] = 0.0
                 self.injected_parameters["MouthSmile"] = 1.0
                 recent_features.add("wink")
                 self.turn_animation_log.add("wink")
-            elif expr == "tongue" and "tongue" not in recent_features:
-                # Stick tongue out (value 1.0) AND open mouth WIDE (value 1.0)
-                # Most models need the mouth fully open to see the tongue!
-                await self.inject_parameter("MouthOpen", 1.0)
-                await self.inject_parameter("TongueOut", 1.0)
-                await self.inject_parameter("MouthSmile", 0.0)
-                self.injected_parameters["MouthOpen"] = 1.0
-                self.injected_parameters["TongueOut"] = 1.0
-                self.injected_parameters["MouthSmile"] = 0.0
-                recent_features.add("tongue")
-                self.turn_animation_log.add("tongue")
                 
             await asyncio.sleep(0.35)
 
@@ -404,7 +388,7 @@ class VTubeController:
 
         # 2. Reset all injected parameters to default values
         # We also explicitly reset high-likelihood "sticking" parameters
-        all_params_to_clear = set(self.injected_parameters.keys()) | {"TongueOut", "MouthOpen", "EyeOpenLeft", "EyeOpenRight"}
+        all_params_to_clear = set(self.injected_parameters.keys()) | {"EyeOpenLeft", "EyeOpenRight"}
         
         for p_name in all_params_to_clear:
             # Reset by returning control to tracking camera with weight=0.0
