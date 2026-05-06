@@ -32,6 +32,8 @@ const EXPRESSION_FILES = {
   shadow: 'Shadow.exp3.json',
   pupil_shrink: 'PupilShrink.exp3.json',
   eyeshine_off: 'EyeshineOff.exp3.json',
+  blush: 'EyeshineOff.exp3.json',  // Blush looks good with EyeshineOff
+  embarrassed: 'SadLock.exp3.json',
 }
 
 // Maps LLM-annotated expression names → the closest ambient mood.
@@ -363,25 +365,57 @@ export const AvatarRenderer = forwardRef(function AvatarRenderer(props, ref) {
       for (const name of names) {
         const file = EXPRESSION_FILES[name]
         if (file) _model.expression(file)
+        
+        const c = _model.internalModel.coreModel
         if (name === 'wink') {
-          const c = _model.internalModel.coreModel
           c.setParameterValueById('ParamEyeLOpen', 0.0)
           c.setParameterValueById('ParamBrowLForm', -1.0)
           c.setParameterValueById('ParamMouthForm', 1.0)
         }
-        if (name === 'tongue') {
-          _mouthYLocked = true   // prevent lip-sync loop from overriding MouthOpenY
-          const c = _model.internalModel.coreModel
-          // Hu Tao specific: Param70 is TongueOut
-          c.setParameterValueById('Param70', 1.0)
+        else if (name === 'tongue') {
+          _mouthYLocked = true
+          c.setParameterValueById('Param70', 1.0) // TongueOut
           c.setParameterValueById('ParamMouthOpenY', 1.0)
           c.setParameterValueById('ParamMouthForm', -1.0)
+        }
+        else if (name === 'cheeky') {
+          _mouthYLocked = true
+          c.setParameterValueById('ParamEyeLOpen', 0.0)
+          c.setParameterValueById('Param70', 1.0)
+          c.setParameterValueById('ParamMouthOpenY', 1.0)
+        }
+        else if (name === 'pouting') {
+          c.setParameterValueById('ParamMouthForm', -1.0)
+          c.setParameterValueById('ParamBrowLForm', -1.0)
+          c.setParameterValueById('ParamBrowRForm', -1.0)
+        }
+        else if (name === 'curious idle') {
+          c.setParameterValueById('ParamBrowLForm', 0.5)
+          c.setParameterValueById('ParamBrowRForm', -0.5)
+        }
+        else if (name === 'pleading') {
+          c.setParameterValueById('ParamBrowLY', 1.0)
+          c.setParameterValueById('ParamBrowRY', 1.0)
+          c.setParameterValueById('ParamMouthForm', -0.5)
         }
       }
       setTimeout(() => {
         _expressionActive = false
         _mouthYLocked = false
-        if (_model) _model.expression()
+        if (_model) {
+          _model.expression()
+          const c = _model.internalModel.coreModel
+          // Reset manual overrides to neutral
+          c.setParameterValueById('Param70', 0.0) // Tongue Out
+          c.setParameterValueById('ParamEyeLOpen', 1.0)
+          c.setParameterValueById('ParamEyeROpen', 1.0)
+          c.setParameterValueById('ParamBrowLForm', 0.0)
+          c.setParameterValueById('ParamBrowRForm', 0.0)
+          c.setParameterValueById('ParamBrowLY', 0.0)
+          c.setParameterValueById('ParamBrowRY', 0.0)
+          c.setParameterValueById('ParamMouthForm', 0.0)
+          c.setParameterValueById('ParamMouthOpenY', 0.0)
+        }
       }, duration * 1000)
     },
 

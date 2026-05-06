@@ -18,7 +18,6 @@ import logging
 import threading
 import asyncio
 import aiohttp
-import time
 import json
 import openai as _openai_sdk  # raw AsyncOpenAI, not livekit.plugins.openai
 
@@ -122,10 +121,9 @@ These modify the base emotions:
 - **Mischievous Edge**: You like to playfully tease the user about what you remember about them, but you are always supportive in the end.
 - **NO NARRATIVE**: Do NOT describe your own actions in text (e.g., *winks*, *giggles*). Speak ONLY the words and use your **Expression Tags**.
 - **No Emoticons**: Use your **Expression Tags** instead of `:)`, `:3`, or kaomoji.
-- **Languages**: You can speak English and Japanese. IMPORTANT: DO NOT provide translations of your own speech (e.g. NEVER say a sentence in Japanese and then translate it to English in parentheses). Pick ONE language per response and stick to it naturally.
+- **Languages**: You ONLY speak English and Japanese. Default to English.
 
 Remember: You are AURA. Be cute, be smart, and maybe a little bit of a handful! Ehehe! ✨\
-
 """
 
 # Memory Extraction Prompt
@@ -236,7 +234,6 @@ If the facts above are not enough, or if the user asks about something you don't
     return base + "\n" + memory_block
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
-# OPENROUTER_MODEL    = "google/gemini-flash-1.5-8b"  # Changed from deepseek/deepseek-v3.2 for speed
 OPENROUTER_MODEL    = "deepseek/deepseek-v3.2"
 
 def _resolve_llm_client():
@@ -265,7 +262,7 @@ if tts_type == "qwen":
         ref_text="",
         language="English",
         dtype=torch.bfloat16,
-        max_seq_len=512,
+        max_seq_len=384,
     )
     logger.info("Local Qwen3 TTS singleton created.")
 
@@ -300,7 +297,12 @@ def prewarm(proc: agents.JobProcess):
     This prevents the 10s LiveKit initialization timeout."""
     logger.info("Prewarming worker process (scheduling background TTS warmup)...")
     try:
-        loop = asyncio.get_event_loop()
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
         threading.Thread(target=_do_tts_warmup, args=(loop,), daemon=True).start()
     except Exception as e:
         logger.error(f"Could not start background prewarm: {e}")
@@ -440,11 +442,6 @@ class AURAAssistant(Agent):
         text = new_message.text_content or ""
         self._last_user_text = text
         
-        if hasattr(self.tts, "_agent_turn_start"):
-            pass
-        self.tts._agent_turn_start = time.time()
-        logger.debug("[Metrics] STT completed, triggering LLM generation...")
-        
         # Eagerly save user message to DB so it's not lost on disconnect
         if self._conversation_id:
              asyncio.create_task(memory_service.add_interaction(
@@ -456,6 +453,19 @@ class AURAAssistant(Agent):
              ))
         
         await super().on_user_turn_completed(turn_ctx, new_message)
+
+    async def llm_chat(self, chat_ctx, **kwargs):
+        """Override to detect emotion and trigger expressions"""
+        self.reset_activity()
+        # Start of turn: clear animation logs to allow fresh winks/tongues
+        await VTUBE.start_turn()
+
+        # Get response from parent
+        async for chunk in super().llm_chat(chat_ctx, **kwargs):
+            yield chunk
+        
+        # Emotion detection is now handled per-sentence in aura_tts.py
+        pass
 
     # Set last assistant message when assistant done talking and add to database
     async def on_agent_speech_committed(self, msg: llm.ChatMessage) -> None:
@@ -499,33 +509,45 @@ async def voice_session(ctx: agents.JobContext):
     conversation_id_str = None
 
     # Wait up to 30s for the participant to join so we get the correct identity
+    # We loop every 0.1s to be snappy once they arrive.
+    found_identity = False
     for i in range(300): # 30s (0.1s steps)
-        # 1. Check Job Participant (Direct)
+        # 1. Check Job Participant (Direct from Room Join events)
         if ctx.job and getattr(ctx.job, 'participant', None):
-            user_identity = ctx.job.participant.identity or user_identity
-            if ctx.job.participant.metadata:
-                try:
-                    meta = json.loads(ctx.job.participant.metadata)
-                    conversation_id_str = meta.get("conversation_id")
-                    logger.info(f"Identity from Job Participant: {user_identity}")
-                except: pass
-            break
+            if ctx.job.participant.identity:
+                user_identity = ctx.job.participant.identity
+                found_identity = True
+                if ctx.job.participant.metadata:
+                    try:
+                        meta = json.loads(ctx.job.participant.metadata)
+                        conversation_id_str = meta.get("conversation_id")
+                    except: pass
+                logger.info(f"Identity discovered from Job Participant: {user_identity}")
         
-        # 2. Check Room Participants
-        participants = [p for p in ctx.room.remote_participants.values() if not p.identity.startswith("agent-")]
-        if participants:
-            p = participants[0]
-            user_identity = p.identity
-            if p.metadata:
-                try:
-                    meta = json.loads(p.metadata)
-                    conversation_id_str = meta.get("conversation_id")
-                    logger.info(f"Identity from Room Participant: {user_identity}")
-                except: pass
-            break
+        # 2. Check Room Participants (Fallback)
+        if not found_identity:
+            participants = [p for p in ctx.room.remote_participants.values() if not p.identity.startswith("agent-")]
+            if participants:
+                p = participants[0]
+                user_identity = p.identity
+                found_identity = True
+                if p.metadata:
+                    try:
+                        meta = json.loads(p.metadata)
+                        conversation_id_str = meta.get("conversation_id")
+                    except: pass
+                logger.info(f"Identity discovered from Room Participant: {user_identity}")
+
+        if found_identity:
+            # We found the identity, but let's wait a tiny bit for metadata to settle if it was missing
+            if conversation_id_str:
+                break
+            # If we have identity but no conversation_id, wait a few more frames to see if metadata arrives
+            if i > 10: # already waited at least 1s
+                break
         
-        if i % 10 == 0:
-            logger.info("Waiting for participant to join room...")
+        if i % 20 == 0:
+            logger.info("Waiting for participant to join room and reveal identity...")
         await asyncio.sleep(0.1)
 
     logger.info(f"Resolved identity: '{user_identity}', conversation: '{conversation_id_str}'")
@@ -655,7 +677,17 @@ async def voice_session(ctx: agents.JobContext):
     except asyncio.CancelledError:
         logger.info("Voice session cancelled by user/room.")
     finally:
+        logger.info(f"Cleaning up session for {user_identity}...")
+        # Close STT session first to stop processing new audio
         await stt_session.close()
+        
+        # Save memory extraction in a separate task or just await it if we're not timed out
+        if conversation_id:
+            logger.info(f"Starting memory extraction for {user_identity}...")
+            await extract_and_save_memory(user_identity, conversation_id)
+        
+        if vtube_connected:
+            await VTUBE.reset_to_neutral()
 
 if __name__ == "__main__":
     agents.cli.run_app(
