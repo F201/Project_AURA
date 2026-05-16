@@ -1,5 +1,5 @@
 from app.services.brain.state import BrainState
-from app.services.llm import llm_service
+from app.services.providers.registry import provider_registry
 
 # Node to detect emotion 
 async def detect_emotion(state: BrainState) -> dict:
@@ -13,7 +13,7 @@ async def detect_emotion(state: BrainState) -> dict:
     """
     
     # Call LLM to detect emotion
-    response = await llm_service.generate([{"role": "system", "content": prompt}])
+    response = await provider_registry.generate([{"role": "system", "content": prompt}])
 
     # Return detected emotion
     return {"emotion": response.get("emotion", "neutral").strip().lower()}

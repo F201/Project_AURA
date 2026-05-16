@@ -50,7 +50,7 @@ export default function KnowledgeBase() {
             try {
                 const formData = new FormData()
                 formData.append('file', file)
-                await fetch('http://localhost:8000/api/v1/rag/upload', {
+                await fetch('http://localhost:8001/api/v1/rag/upload', {
                     method: 'POST',
                     body: formData
                 })
@@ -88,11 +88,11 @@ export default function KnowledgeBase() {
         <div className="flex flex-col h-full">
             <div className="flex justify-between items-end mb-8 px-2">
                 <div className="space-y-1">
-                    <h3 className="text-xl font-black text-white tracking-widest uppercase flex items-center gap-3">
+                    <h3 className="text-xl font-black text-black tracking-widest uppercase flex items-center gap-3">
                         <span className="w-2 h-2 rounded-full bg-primary shadow-[0_0_8px_#ff7e33]" />
                         Cognitive Core
                     </h3>
-                    <p className="text-[10px] text-white/20 font-black uppercase tracking-[0.2em]">Contextual Data Vectors</p>
+                    <p className="text-[10px] text-black/60 font-black uppercase tracking-[0.2em]">Contextual Data Vectors</p>
                 </div>
                 <div className="px-3 py-1 bg-white/5 rounded-full border border-white/5 shadow-inner">
                     <span className="text-[10px] font-black text-primary/80 uppercase tracking-tighter">{files.length} ASSETS MAPPED</span>
@@ -127,7 +127,7 @@ export default function KnowledgeBase() {
                 ))}
 
                 {files.length === 0 && (
-                    <div className="py-12 flex flex-col items-center justify-center opacity-10 grayscale">
+                    <div className="py-12 flex flex-col items-center justify-center opacity-60 text-black">
                         <span className="material-icons-round text-6xl mb-4">folder_off</span>
                         <p className="text-xs font-black uppercase tracking-[0.3em]">No Data Mapped</p>
                     </div>
@@ -135,21 +135,21 @@ export default function KnowledgeBase() {
             </div>
 
             {/* Upload zone */}
-            <label className="relative overflow-hidden border-2 border-dashed border-white/5 rounded-3xl p-10 flex flex-col items-center justify-center text-center group hover:border-primary/30 hover:bg-primary/[0.02] transition-all cursor-pointer bg-black/20 shadow-inner">
+            <label className="relative overflow-hidden border-2 border-dashed border-black/10 rounded-3xl p-10 flex flex-col items-center justify-center text-center group hover:border-primary/30 hover:bg-primary/[0.02] transition-all cursor-pointer bg-white shadow-xl">
                 <div className="absolute inset-0 aura-gradient opacity-0 group-hover:opacity-[0.03] transition-opacity pointer-events-none" />
                 <input type="file" onChange={handleUpload} className="hidden" accept=".pdf,.txt,.json,.csv,.zip,.pptx" />
 
-                <div className="w-16 h-16 rounded-2xl bg-white/5 flex items-center justify-center mb-5 group-hover:scale-110 group-hover:bg-primary/10 transition-all shadow-xl border border-white/5 group-hover:border-primary/20">
-                    <span className={`material-icons-round text-3xl transition-all ${uploading ? 'text-primary animate-spin' : 'text-white/40 group-hover:text-primary'}`}>
+                <div className="w-16 h-16 rounded-2xl bg-black/5 flex items-center justify-center mb-5 group-hover:scale-110 group-hover:bg-primary/10 transition-all shadow-sm border border-black/5 group-hover:border-primary/20">
+                    <span className={`material-icons-round text-3xl transition-all ${uploading ? 'text-primary animate-spin' : 'text-black/30 group-hover:text-primary'}`}>
                         {uploading ? 'hourglass_empty' : 'auto_mode'}
                     </span>
                 </div>
 
                 <div className="space-y-1">
-                    <p className="font-black text-xs text-white/80 group-hover:text-white uppercase tracking-[0.1em] transition-colors">
+                    <p className="font-black text-xs text-black/80 group-hover:text-black uppercase tracking-[0.1em] transition-colors">
                         {uploading ? 'INGESTING DATA...' : 'INITIATE NEURAL INGESTION'}
                     </p>
-                    <p className="text-[10px] text-white/20 font-medium tracking-tight">
+                    <p className="text-[10px] text-black/40 font-medium tracking-tight">
                         Drop PDF, TXT, JSON, or CSV (UP TO 50MB)
                     </p>
                 </div>

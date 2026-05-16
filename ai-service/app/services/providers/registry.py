@@ -23,6 +23,7 @@ import os
 import random
 import time
 
+from app.core.config import settings
 from app.services.providers.base import LLMProvider, RetryableError, NonRetryableError
 
 logger = logging.getLogger(__name__)
@@ -77,10 +78,10 @@ class ProviderRegistry:
         # Lazy import avoids circular imports at module load time
         from app.services.settings_service import settings_service
 
-        db = settings_service.get_settings()
-        keys = settings_service.get_api_keys()
+        db = await settings_service.get_settings()
+        keys = await settings_service.get_api_keys()
 
-        actual_model       = model or db.get("model") or "deepseek/deepseek-v3.2"
+        actual_model       = model or db.get("model") or settings.DEFAULT_LLM_MODEL
         actual_temp        = temperature if temperature is not None else float(db.get("temperature", 0.8))
         actual_max_tokens  = max_tokens or int(db.get("max_tokens", 300))
 
@@ -159,10 +160,10 @@ class ProviderRegistry:
     ) -> AsyncGenerator[TextDelta | StreamDone, None]:
         from app.services.settings_service import settings_service
 
-        db = settings_service.get_settings()
-        keys = settings_service.get_api_keys()
+        db = await settings_service.get_settings()
+        keys = await settings_service.get_api_keys()
 
-        actual_model       = model or db.get("model") or "deepseek/deepseek-v3.2"
+        actual_model       = model or db.get("model") or settings.DEFAULT_LLM_MODEL
         actual_temp        = temperature if temperature is not None else float(db.get("temperature", 0.8))
         actual_max_tokens  = max_tokens or int(db.get("max_tokens", 300))
 

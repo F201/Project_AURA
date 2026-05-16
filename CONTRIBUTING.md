@@ -35,6 +35,7 @@ When opening a PR, follow this format:
 `[type]: Short description`
 
 Examples:
+
 - `feature: add system prompt memory chunking`
 - `fix: resolve livekit token expiration issue`
 

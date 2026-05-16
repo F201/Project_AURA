@@ -9,3 +9,4 @@ class BrainState(TypedDict):
     emotion: str
     conversation_id: str
     identity: str
+    stream: bool

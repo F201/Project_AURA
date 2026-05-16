@@ -4,7 +4,7 @@ from pptx import Presentation
 from pathlib import Path
 import logging
 from supabase import create_client
-from langchain_openai import OpenAIEmbeddings
+
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from app.core.config import settings
 
@@ -12,6 +12,8 @@ logger = logging.getLogger(__name__)
 
 UPLOAD_DIR = Path("data/uploads")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+from app.services.embeddings import get_embeddings
 
 class RAGService:
     def __init__(self):
@@ -24,15 +26,9 @@ class RAGService:
         else:
             logger.warning("Supabase credentials not set. RAG service database sync disabled.")
 
-        api_key = settings.OPENROUTER_API_KEY
-        if api_key:
-            self.embeddings = OpenAIEmbeddings(
-                api_key=api_key,
-                model="openai/text-embedding-3-small",
-                base_url="https://openrouter.ai/api/v1"
-            )
-        else:
-            logger.warning("OPENROUTER_API_KEY not set. Falling back or failing embedding generation.")
+        self.embeddings = get_embeddings()
+        if not self.embeddings:
+            logger.warning("Embeddings not initialized. Falling back or failing embedding generation.")
 
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=1000,

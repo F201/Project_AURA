@@ -13,7 +13,7 @@ class Message(BaseModel):
     content: str
     emotion: str = "neutral"
 
-class CreateMesssage(BaseModel):
+class CreateMessage(BaseModel):
     conversation_id: UUID
     role: str
     content: str
@@ -30,7 +30,7 @@ class Conversation(BaseModel):
 class CreateConversation(BaseModel):
     title: Optional[str] = "New Conversation"
 
-# Tabel Memories
+# Table Memories
 
 class Memory(BaseModel):
     id: UUID

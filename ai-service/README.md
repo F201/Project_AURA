@@ -1,31 +1,34 @@
-# AURA AI Service
+# AURA AI Service (The Brain)
 
-This service provides the intelligent backbone for AURA, handling document processing, Knowledge Base (RAG) search, and LLM reasoning.
+The centralized intelligence hub for AURA. It manages the LangGraph reasoning engine, Supabase memory (pgvector), and LLM provider orchestration.
 
 ## 🚀 Overview
-The AI Service is built with **FastAPI** and uses a RAG (Retrieval-Augmented Generation) pattern to grounded AURA's responses in specific documents.
+The AI Service is the "Brain" of AURA. Unlike traditional agents where the logic is coupled to the transport (voice), AURA separates the **logic** (AI Service) from the **transport** (Voice Agent/Dashboard).
 
 ## 🛠 Tech Stack
 - **Framework**: FastAPI (Python 3.10+)
-- **Vector Search**: Qdrant (local or cloud)
-- **Embeddings**: Sentence-Transformers
-- **ORMs/Tools**: Pydantic, SQLAlchemy
+- **Logic Engine**: LangGraph & Pydantic AI
+- **Vector Database**: Supabase (PostgreSQL + `pgvector`)
+- **Embeddings**: OpenAI / OpenRouter / Ollama
+- **Storage**: Supabase Buckets (for document source files)
 
-## 📋 Capabilities
-- **Document Ingestion**: Upload `.txt`, `.pdf`, and `.pptx` documents to AURA's brain.
-- **RAG Search**: Semantic search over uploaded documents to provide context to the Voice Agent.
-- **API Endpoints**: 
-  - `GET /api/v1/rag/search`: Search the knowledge base.
-  - `POST /api/v1/rag/upload`: Ingest new documents.
+## 📋 Key Capabilities
+- **Centralized Chat**: `POST /api/v1/chat` supports both standard JSON and Server-Sent Events (SSE) for real-time streaming.
+- **Semantic Memory (RAG)**: Automatically retrieves relevant context from uploaded PDFs, PPTXs, and text files.
+- **Long-Term Memory (LTM)**: Extracts user facts and preferences to persist across sessions.
+- **Provider Registry**: Intelligent routing and automatic failover between Anthropic, OpenAI, Groq, and OpenRouter.
 
-## ⚙️ Setup
-1. **Navigate to directory**: `cd ai-service`
-2. **Setup environment**: `python -m venv venv`
-3. **Activate environment**:
-   - Windows: `venv\Scripts\activate`
-   - Unix: `source venv/bin/activate`
-4. **Install dependencies**: `pip install -r requirements.txt`
-5. **Configure `.env`**:
-   - `OPENAPI_KEY`: Your LLM provider key.
-   - `QDRANT_URL`: URL to your vector database.
-6. **Run**: `uvicorn app.main:app --reload`
+## ⚙️ Setup & Running
+
+1. `cd ai-service`
+2. `python -m venv venv`
+3. `venv\Scripts\activate` (Windows)
+4. `pip install -r requirements.txt`
+5. `uvicorn app.main:app --reload --port 8001`
+
+## 🧪 Testing
+Unit and integration tests are located in `tests/`.
+```powershell
+pytest tests/unit/
+pytest tests/integration/
+```

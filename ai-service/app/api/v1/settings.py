@@ -31,14 +31,14 @@ class ApiKeysPatch(BaseModel):
 
 
 @router.get("")
-def get_settings():
-    return settings_service.get_settings()
+async def get_settings():
+    return await settings_service.get_settings()
 
 
 @router.put("")
-def update_settings(patch: SettingsPatch):
+async def update_settings(patch: SettingsPatch):
     data = {k: v for k, v in patch.model_dump().items() if v is not None}
-    return settings_service.update_settings(data)
+    return await settings_service.update_settings(data)
 
 
 @router.get("/providers")
@@ -48,15 +48,15 @@ def list_providers():
 
 
 @router.get("/keys")
-def get_api_keys():
-    keys = settings_service.get_api_keys()
+async def get_api_keys():
+    keys = await settings_service.get_api_keys()
     # Return masked values — just signals whether the key is configured
     return {k: ("set" if (v and str(v).strip()) else None)
             for k, v in keys.items() if k != "id"}
 
 
 @router.put("/keys")
-def update_api_keys(patch: ApiKeysPatch):
+async def update_api_keys(patch: ApiKeysPatch):
     data = {k: v for k, v in patch.model_dump().items() if v is not None}
-    settings_service.update_api_keys(data)
+    await settings_service.update_api_keys(data)
     return {"status": "ok"}

@@ -29,6 +29,8 @@ nav:
     - Configuration: "getting-started/CONFIGURATION.md"
     - Usage: "getting-started/USAGE.md"
   - Architecture:
+    - Overview: "architecture/overview.md"
+    - Detail: "architecture/ARCHITECTURE.md"
     - Avatar Setup: "architecture/AVATAR_SYSTEM.md"
     - Voice Pipeline: "architecture/VOICE_PIPELINE.md"
     - Memory & RAG: "architecture/AI_MEMORY.md"
@@ -37,9 +39,11 @@ nav:
     - Frontend Hacking: "developer/FRONTEND.md"
     - Voice Agent Hacking: "developer/VOICE_AGENT.md"
     - AI Service Hacking: "developer/AI_SERVICE.md"
+    - Backend Map: "backend/file-map.md"
     - Customization: "developer/CUSTOMIZATION.md"
     - API Reference: "developer/API_REFERENCE.md"
     - Component Map: "developer/INDEX.md"
+    - Quality Assurance: "developer/QUALITY_ASSURANCE.md"
 
 markdown_extensions:
   - admonition

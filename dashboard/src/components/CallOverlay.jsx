@@ -6,6 +6,7 @@ import { getOrCreateIdentity } from '../lib/user'
 export default function CallOverlay({ onClose, conversationId }) {
     const [status, setStatus] = useState('connecting')
     const [elapsed, setElapsed] = useState(0)
+    const [muted, setMuted] = useState(false)
     const roomRef = useRef(null)
     const timerRef = useRef(null)
     const avatarRef = useRef(null)
@@ -134,6 +135,14 @@ export default function CallOverlay({ onClose, conversationId }) {
         onClose()
     }
 
+    const toggleMute = useCallback(async () => {
+        const room = roomRef.current
+        if (!room) return
+        const newMuted = !muted
+        await room.localParticipant.setMicrophoneEnabled(!newMuted)
+        setMuted(newMuted)
+    }, [muted])
+
     const formatTime = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
 
     return (
@@ -179,10 +188,19 @@ export default function CallOverlay({ onClose, conversationId }) {
                         <span className="material-icons-round text-4xl group-hover:rotate-90 transition-transform">close</span>
                     </button>
 
-                    {/* Placeholder for future mic toggle/settings */}
-                    <div className="w-12 h-12 rounded-full border border-slate-200 flex items-center justify-center text-slate-400 opacity-50">
-                        <span className="material-icons-round">mic</span>
-                    </div>
+                    {/* Mute toggle */}
+                    <button
+                        type="button"
+                        onClick={toggleMute}
+                        className={`w-12 h-12 rounded-full border flex items-center justify-center transition-all duration-300 cursor-pointer ${
+                            muted 
+                                ? 'bg-red-500 border-red-500 text-white hover:bg-red-600' 
+                                : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100 hover:border-slate-300'
+                        }`}
+                        title={muted ? 'Unmute microphone' : 'Mute microphone'}
+                    >
+                        <span className="material-icons-round">{muted ? 'mic_off' : 'mic'}</span>
+                    </button>
                 </div>
             </div>
         </div>

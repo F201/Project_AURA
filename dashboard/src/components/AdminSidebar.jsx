@@ -2,8 +2,6 @@ import { useNavigate, useLocation } from 'react-router-dom'
 
 const NAV_ITEMS = [
     { icon: 'chat_bubble_outline', label: 'Chat', path: '/' },
-    { icon: 'dashboard', label: 'Board', path: '/admin' },
-    { icon: 'settings', label: 'Setup', path: '/admin' },
 ]
 
 export default function AdminSidebar() {

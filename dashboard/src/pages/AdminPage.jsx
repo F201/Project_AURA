@@ -7,7 +7,7 @@ import ApiKeys from '../components/ApiKeys'
 import KnowledgeBase from '../components/KnowledgeBase'
 import SystemLogs from '../components/SystemLogs'
 
-const AI_SERVICE = `http://${window.location.hostname}:8000/api/v1`
+const AI_SERVICE = `http://${window.location.hostname}:8001/api/v1`
 
 export default function AdminPage() {
     const [settings, setSettings] = useState(null)
@@ -89,7 +89,7 @@ export default function AdminPage() {
                 <header className="mb-10 flex justify-between items-end">
                     <div>
                         <h1 className="text-4xl font-black tracking-tight text-slate-800 mb-2">Project AURA <span className="text-slate-400 font-light">System Control Center</span></h1>
-                        <p className="text-slate-500 font-medium">Project AURA • Instance Node #772-Beta</p>
+                        <p className="text-slate-500 font-medium">Advanced Universal Responsive Avatar</p>
                     </div>
                     <div className="flex items-center gap-4">
                         {saveMsg && (
@@ -112,7 +112,9 @@ export default function AdminPage() {
                     </div>
                 </header>
 
-                <StatusCards />
+                <div className="my-16">
+                    <StatusCards />
+                </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
                     <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm">

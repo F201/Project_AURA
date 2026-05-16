@@ -1,5 +1,6 @@
 import logging
 import time
+import asyncio
 from supabase import create_client, Client
 from app.core.config import settings as app_settings
 
@@ -44,7 +45,7 @@ class SettingsService:
         self._TTL = 60 # seconds for settings
         self._KEY_TTL = 5 # seconds for keys (re-check faster)
 
-    def get_settings(self) -> dict:
+    async def get_settings(self) -> dict:
         if not self._client:
             return dict(_DEFAULTS)
         
@@ -53,7 +54,10 @@ class SettingsService:
             return self._cache["settings"]
 
         try:
-            result = self._client.table("personality_settings").select("*").eq("id", 1).single().execute()
+            # Use to_thread to avoid blocking the event loop with synchronous Supabase call
+            result = await asyncio.to_thread(
+                lambda: self._client.table("personality_settings").select("*").eq("id", 1).single().execute()
+            )
             if result.data:
                 settings = {**_DEFAULTS, **result.data}
                 self._cache["settings"] = settings
@@ -63,11 +67,13 @@ class SettingsService:
             logger.warning(f"SettingsService.get_settings failed: {e}")
         return self._cache.get("settings", dict(_DEFAULTS))
 
-    def update_settings(self, patch: dict) -> dict:
+    async def update_settings(self, patch: dict) -> dict:
         if not self._client:
             return dict(_DEFAULTS)
         try:
-            result = self._client.table("personality_settings").update(patch).eq("id", 1).execute()
+            result = await asyncio.to_thread(
+                lambda: self._client.table("personality_settings").update(patch).eq("id", 1).execute()
+            )
             # Invalidate cache
             if "settings" in self._cache:
                 del self._cache["settings"]
@@ -77,7 +83,7 @@ class SettingsService:
             logger.error(f"SettingsService.update_settings failed: {e}")
         return dict(_DEFAULTS)
 
-    def get_api_keys(self) -> dict:
+    async def get_api_keys(self) -> dict:
         if not self._client:
             return dict(_KEY_DEFAULTS)
 
@@ -86,21 +92,25 @@ class SettingsService:
             return self._cache["keys"]
 
         try:
-            result = self._client.table("api_keys").select("*").eq("id", 1).single().execute()
+            result = await asyncio.to_thread(
+                lambda: self._client.table("api_keys").select("*").eq("id", 1).single().execute()
+            )
             if result.data:
                 keys = {**_KEY_DEFAULTS, **result.data}
                 self._cache["keys"] = keys
-                self._cache_expiry["keys"] = now + self._KEY_TTL
+                self._cache_expiry["keys"] = now + self._TTL # Consistent with settings TTL
                 return keys
         except Exception as e:
             logger.warning(f"SettingsService.get_api_keys failed: {e}")
         return self._cache.get("keys", dict(_KEY_DEFAULTS))
 
-    def update_api_keys(self, patch: dict) -> dict:
+    async def update_api_keys(self, patch: dict) -> dict:
         if not self._client:
             return dict(_KEY_DEFAULTS)
         try:
-            result = self._client.table("api_keys").update(patch).eq("id", 1).execute()
+            result = await asyncio.to_thread(
+                lambda: self._client.table("api_keys").update(patch).eq("id", 1).execute()
+            )
             # Invalidate cache
             if "keys" in self._cache:
                 del self._cache["keys"]

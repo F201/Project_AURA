@@ -12,7 +12,11 @@ taskkill /F /FI "WINDOWTITLE eq AURA Token Server" /T >nul 2>&1
 taskkill /F /FI "WINDOWTITLE eq AURA Voice Agent" /T >nul 2>&1
 taskkill /F /FI "WINDOWTITLE eq AURA AI Service" /T >nul 2>&1
 taskkill /F /FI "WINDOWTITLE eq AURA Dashboard" /T >nul 2>&1
-timeout /t 1 /nobreak >nul
+
+:: Force kill anything on ports 8000 or 8001 (to handle detached uvicorn)
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr :8000') do taskkill /F /PID %%a >nul 2>&1
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr :8001') do taskkill /F /PID %%a >nul 2>&1
+timeout /t 2 /nobreak >nul
 
 :: ─── 0. Setup Virtual Environments ──────────
 echo [0/4] Checking environments...
@@ -73,8 +77,8 @@ if /I "%TTS_TYPE%"=="qwen" (
 timeout /t 2 /nobreak >nul
 
 :: ─── 3. AI Service (direct) ──────
-echo [3/4] Starting AI Service (port 8000)...
-start "AURA AI Service" cmd /k "cd ai-service & venv\Scripts\activate & python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+echo [3/4] Starting AI Service (port 8001)...
+start "AURA AI Service" cmd /k "cd ai-service & venv\Scripts\activate & python -m uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload"
 timeout /t 2 /nobreak >nul
 
 :: ─── 4. Dashboard ───────────────────────────
