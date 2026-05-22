@@ -15,7 +15,7 @@ const PROVIDERS = [
 ]
 
 const MODEL_SUGGESTIONS = {
-    openrouter: ['deepseek/deepseek-v3.2', 'openai/gpt-4o', 'anthropic/claude-sonnet-4-5', 'mistralai/mistral-nemo'],
+    openrouter: ['deepseek/deepseek-v4-flash', 'deepseek/deepseek-v3.2', 'openai/gpt-4o', 'anthropic/claude-sonnet-4-5', 'mistralai/mistral-nemo'],
     openai: ['gpt-5.5', 'gpt-5.4', 'gpt-5.3'],
     anthropic: ['claude-opus-4-5', 'claude-sonnet-4-5', 'claude-haiku-4-5-20251001'],
     groq: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'mixtral-8x7b-32768'],

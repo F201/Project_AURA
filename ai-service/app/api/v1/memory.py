@@ -68,6 +68,9 @@ async def get_voice_session(request: SessionRequest, _ = Depends(verify_internal
     """
     Get or create a conversation for a voice session and return relevant context.
     """
+    import asyncio
+    from app.services.settings_service import settings_service
+
     # 1. Get/Create Conversation
     conv_id = await memory_service.get_or_create_conversation(
         request.identity, 
@@ -80,6 +83,10 @@ async def get_voice_session(request: SessionRequest, _ = Depends(verify_internal
     # 2. Get Long-Term Memories (LTM)
     ltm = await memory_service.get_long_term_memories(request.identity)
     
+    # 3. Pre-warm settings and api_keys caches in the background
+    asyncio.create_task(settings_service.get_settings())
+    asyncio.create_task(settings_service.get_api_keys())
+
     return SessionResponse(
         conversation_id=str(conv_id),
         is_returning_user=bool(ltm),

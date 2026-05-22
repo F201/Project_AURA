@@ -5,6 +5,7 @@ from app.services.providers.registry import infer_provider, ProviderRegistry
 def test_infer_provider():
     assert infer_provider("claude-3-opus-20240229") == "anthropic"
     assert infer_provider("deepseek/deepseek-v3.2") == "openrouter"
+    assert infer_provider("deepseek/deepseek-v4-flash") == "openrouter"
     assert infer_provider("gpt-4o") == "openai"
     assert infer_provider("llama3-8b-instruct") == "ollama"
     assert infer_provider("unknown-model") == "openrouter"
@@ -49,9 +50,9 @@ async def test_provider_registry_fallback(monkeypatch):
     
     # Mock settings
     class MockSettings:
-        def get_settings(self):
+        async def get_settings(self):
             return {"provider": "auto", "model": "gpt-4", "temperature": 0.8, "max_tokens": 100}
-        def get_api_keys(self):
+        async def get_api_keys(self):
             return {"openai_api_key": "sk-123", "openrouter_api_key": "sk-or"}
 
     monkeypatch.setattr("app.services.settings_service.settings_service", MockSettings())
@@ -87,9 +88,9 @@ async def test_provider_registry_non_retryable(monkeypatch):
     registry = ProviderRegistry()
     
     class MockSettings:
-        def get_settings(self):
+        async def get_settings(self):
             return {"provider": "auto", "model": "claude-3"}
-        def get_api_keys(self):
+        async def get_api_keys(self):
             return {"anthropic_api_key": "sk-ant"}
 
     monkeypatch.setattr("app.services.settings_service.settings_service", MockSettings())

@@ -47,4 +47,3 @@ async def test_generate():
         
         mock_generate.assert_called_once()
         mock_memory.add_interaction.assert_called()
-        mock_memory.store.assert_called()

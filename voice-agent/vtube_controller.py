@@ -87,6 +87,7 @@ class VTubeController:
             "BrowLeftY": "wink",
             "MouthSmile": "wink",
         }
+        self._wink_task = None
 
     async def connect(self):
         """Connect to VTube Studio with robust re-authentication."""
@@ -236,6 +237,14 @@ class VTubeController:
             logger.info("VTube Studio not connected. Attempting to reconnect...")
             if not await self.connect():
                 return
+
+        # Cancel any ongoing wink animation at the start of any new expression set
+        if hasattr(self, "_wink_task") and self._wink_task and not self._wink_task.done():
+            self._wink_task.cancel()
+            try:
+                await self._wink_task
+            except asyncio.CancelledError:
+                pass
         
         # Double check cache if empty (safety net)
         if not self.expression_hotkey_map:
@@ -297,9 +306,8 @@ class VTubeController:
                 continue
 
             if expr in self.active_expressions and self.active_expressions[expr] == hotkey_id:
-                await self._trigger_hotkey(expr, hotkey_id, action="Toggled OFF to pulse")
-                del self.active_expressions[expr]
-                await asyncio.sleep(0.35) 
+                logger.debug(f"Expression '{expr}' is already active. Skipping re-trigger.")
+                continue 
                 
             success = await self._trigger_hotkey(expr, hotkey_id)
             if success:
@@ -308,17 +316,47 @@ class VTubeController:
             
             # Special handling for direct parameters (wink/tongue)
             if expr == "wink" and "wink" not in recent_features:
-                # Natural Wink: Close left eye, lower left brow, smile more
-                await self.inject_parameter("EyeOpenLeft", 0.0)
-                await self.inject_parameter("BrowLeftY", 0.0)
-                await self.inject_parameter("MouthSmile", 1.0)
-                self.injected_parameters["EyeOpenLeft"] = 0.0
-                self.injected_parameters["BrowLeftY"] = 0.0
-                self.injected_parameters["MouthSmile"] = 1.0
+                self._wink_task = asyncio.create_task(self._run_smooth_wink())
                 recent_features.add("wink")
                 self.turn_animation_log.add("wink")
                 
             await asyncio.sleep(0.35)
+
+    async def _run_smooth_wink(self):
+        """Asynchronously fade EyeOpenLeft to close one eye, hold, and fade reopen in < 1 second."""
+        try:
+            # Fade close: 4 steps, 0.04s sleep -> 0.16s
+            for i in range(5):
+                val = 1.0 - (i / 4.0)
+                await self.inject_parameter("EyeOpenLeft", val, weight=1.0)
+                await self.inject_parameter("BrowLeftY", val, weight=1.0)
+                await asyncio.sleep(0.04)
+            
+            # Hold closed: 0.15s
+            await self.inject_parameter("EyeOpenLeft", 0.0, weight=1.0)
+            await self.inject_parameter("BrowLeftY", 0.0, weight=1.0)
+            await self.inject_parameter("MouthSmile", 1.0, weight=1.0)
+            await asyncio.sleep(0.15)
+            
+            # Fade open: 5 steps, 0.04s sleep -> 0.20s
+            for i in range(6):
+                val = i / 5.0
+                await self.inject_parameter("EyeOpenLeft", val, weight=1.0)
+                await self.inject_parameter("BrowLeftY", val, weight=1.0)
+                await asyncio.sleep(0.04)
+            
+            # Release tracking control cleanly by returning to weight=0.0
+            await self.inject_parameter("EyeOpenLeft", 1.0, weight=0.0)
+            await self.inject_parameter("BrowLeftY", 0.0, weight=0.0)
+            await self.inject_parameter("MouthSmile", 0.0, weight=0.0)
+            
+        except asyncio.CancelledError:
+            # If cancelled, ensure we release tracking control cleanly
+            await self.inject_parameter("EyeOpenLeft", 1.0, weight=0.0)
+            await self.inject_parameter("BrowLeftY", 0.0, weight=0.0)
+            await self.inject_parameter("MouthSmile", 0.0, weight=0.0)
+        except Exception as e:
+            logger.error(f"Error during smooth wink animation: {e}")
 
     async def inject_parameter(self, parameter_name, value, weight=1.0):
         """Directly inject a numerical value into a Live2D parameter."""
@@ -383,6 +421,13 @@ class VTubeController:
         if not self.is_enabled or not self.connected:
             return
         
+        if hasattr(self, "_wink_task") and self._wink_task and not self._wink_task.done():
+            self._wink_task.cancel()
+            try:
+                await self._wink_task
+            except asyncio.CancelledError:
+                pass
+
         logger.debug("Resetting AURA to neutral expressions...")
         # 1. Turn off all active expressions (hotkeys)
         for expr_name in list(self.active_expressions.keys()):
@@ -442,11 +487,19 @@ class VTubeController:
         if not text:
             return ""
         
-        # 1. Remove bracketed tags [happy, pupil_shrink] specifically
+        # 1. Pad brackets with spaces so adjacent words don't concatenate after stripping
+        #    e.g. "thinking[happy]hehe" → "thinking [happy] hehe" → "thinking  hehe"
+        text = re.sub(r'(\S)\[', r'\1 [', text)
+        text = re.sub(r'\](\S)', r'] \1', text)
+
+        # 1b. Remove bracketed tags [happy, pupil_shrink] specifically
         text = re.sub(r'\[[^\]]+\]', '', text)
-        
-        # 2. Remove roleplay symbols (*acting*, _thinking_, (giggles))
-        text = re.sub(r'[*_][^*_]+[*_]', '', text)
+        # 1c. Remove partial bracket artifacts when sentence tokenizer splits mid-tag
+        #     e.g. "[sad, even start?" → stripped; "angry, sad]" at start → stripped
+        text = re.sub(r'\[[^\]]*$', '', text)       # unclosed [tag at end of string
+        text = re.sub(r'^[^\[]*\]', '', text)        # orphaned tag] at start of string
+
+        # 2. Remove roleplay symbols (giggles) and markdown formatting
         text = re.sub(r'\([^)]+\)', '', text)
         
         # 2. Remove common roleplay "plain text" phrases the LLM might hallucinate

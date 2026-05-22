@@ -27,6 +27,12 @@ async def test_voice_chat_latency_and_persistence(async_client, monkeypatch):
         await asyncio.sleep(0.1) # Simulate DB delay
         return "Fact"
 
+    async def mock_get_settings(*args, **kwargs):
+        return {"model": "mock-model", "provider": "mock-provider"}
+
+    async def mock_get_api_keys(*args, **kwargs):
+        return {"openrouter_api_key": "mock-key"}
+
     # Track calls to add_interaction
     add_interaction_called = False
     async def mock_add_interaction(*args, **kwargs):
@@ -44,6 +50,8 @@ async def test_voice_chat_latency_and_persistence(async_client, monkeypatch):
     monkeypatch.setattr("app.services.memory_service.MemoryService.get_long_term_memories", mock_get_ltm)
     monkeypatch.setattr("app.services.memory_service.MemoryService.add_interaction", mock_add_interaction)
     monkeypatch.setattr("app.services.providers.registry.provider_registry.stream", mock_stream)
+    monkeypatch.setattr("app.services.settings_service.settings_service.get_settings", mock_get_settings)
+    monkeypatch.setattr("app.services.settings_service.settings_service.get_api_keys", mock_get_api_keys)
 
     payload = {"message": "hi", "identity": "tdd-user"}
     headers = {"Authorization": f"Bearer {settings.INTERNAL_API_KEY}"}

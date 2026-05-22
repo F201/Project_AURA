@@ -68,6 +68,7 @@ export default function ChatPage() {
             .from('conversations')
             .select('*')
             .not('title', 'ilike', 'Voice Session%')
+            .not('title', 'ilike', 'New Conversation%')
             .order('updated_at', { ascending: false })
         if (data) setConversations(data)
     }
@@ -307,7 +308,7 @@ export default function ChatPage() {
             {isCallActive && (
                 <CallOverlay
                     onClose={() => setIsCallActive(false)}
-                    conversationId={activeConvoId}
+                    conversationId={null}
                 />
             )}
         </div>

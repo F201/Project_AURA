@@ -179,10 +179,10 @@ async def test_voice_streams_raw_tags(async_client, mock_memory, mock_stream_hap
 
 
 @pytest.mark.asyncio
-async def test_voice_db_persist_scrubs_tags(async_client, mock_memory, mock_stream_happy):
+async def test_voice_no_per_turn_db_persist(async_client, mock_memory, mock_stream_happy):
     """
-    MUST persist scrubbed text to the DB (no expression tags).
-    Tags are for VTube only — storing them pollutes conversation history.
+    Voice endpoint must NOT call add_interaction per turn.
+    Persistence is deferred to session end via POST /persist to reduce latency.
     """
     from app.core.config import settings
 
@@ -194,11 +194,7 @@ async def test_voice_db_persist_scrubs_tags(async_client, mock_memory, mock_stre
     ) as resp:
         await _collect_sse(resp)
 
-    mock_memory.add_interaction.assert_called_once()
-    _, kwargs = mock_memory.add_interaction.call_args
-    saved_text = kwargs.get("assistant_text", "")
-    assert "[happy]" not in saved_text, "Tags must be scrubbed before DB persist"
-    assert "Hello world!" in saved_text
+    mock_memory.add_interaction.assert_not_called()
 
 
 # ── Prompt mode ───────────────────────────────────────────────────────────────

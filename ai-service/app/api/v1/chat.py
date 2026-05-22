@@ -58,7 +58,8 @@ async def chat(request: ChatRequest):
             "emotion":    "neutral",
             "conversation_id": conversation_id,
             "identity": request.identity or "anonymous",
-            "stream": request.stream
+            "stream": request.stream,
+            "mode": "text",
         }
 
         config = {"configurable": {"thread_id": conversation_id}}
@@ -191,26 +192,42 @@ async def chat_voice(request: ChatRequest):
     try:
         conversation_id = request.conversation_id
         if not conversation_id:
-            new_id = await memory_service.create_conversation()
+            new_id = await memory_service.create_conversation(title=f"Voice Session: {request.identity or 'anonymous'}")
             conversation_id = str(new_id) if new_id else "default"
 
         async def voice_event_generator():
+            import time as _time
+            from app.services.settings_service import settings_service
             user_msg = request.message
-            history_model, facts = await asyncio.gather(
+
+            _t0 = _time.time()
+            # Fetch all DB data in parallel — warms settings/keys cache so prompter
+            # and registry hit cache instead of making sequential Supabase round-trips.
+            history_model, facts, _, __ = await asyncio.gather(
                 memory_service.get_history(UUID(conversation_id), session_history_window),
                 memory_service.get_long_term_memories(identity=request.identity or "anonymous", limit=5),
+                settings_service.get_settings(),
+                settings_service.get_api_keys(),
             )
+            logger.info(f"[Voice Perf] DB gather: {_time.time()-_t0:.3f}s")
 
+            _t1 = _time.time()
             history_dicts = [{"role": m["role"], "content": m["content"]} for m in history_model]
             system_content = await prompter.build_system_prompt(mode="voice", facts=facts, memories=[])
+            logger.info(f"[Voice Perf] Prompter: {_time.time()-_t1:.3f}s")
+
             messages_format = [{"role":"system", "content":system_content}] + history_dicts + [{"role":"user", "content":user_msg}]
 
             full_text = ""
             scrubbed_final = ""
             detected_emotion = "neutral"
+            _first_token = True
 
             async for chunk in provider_registry.stream(messages_format):
                 if isinstance(chunk, TextDelta):
+                    if _first_token:
+                        _first_token = False
+                        logger.info(f"[Voice Perf] LLM first token: {_time.time()-_t1:.3f}s after prompter")
                     txt = chunk.text
                     full_text += txt
                     yield f"data: {json.dumps({'text': txt})}\n\n"

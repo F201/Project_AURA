@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 _DEFAULTS = {
     "system_prompt": None,
-    "model":         "deepseek/deepseek-v3.2",
+    "model":         "deepseek/deepseek-v4-flash",
     "provider":      "openrouter",
     "temperature":   0.8,
     "max_tokens":    300,
@@ -65,7 +65,12 @@ class SettingsService:
                 return settings
         except Exception as e:
             logger.warning(f"SettingsService.get_settings failed: {e}")
-        return self._cache.get("settings", dict(_DEFAULTS))
+        
+        # Cache fallback to avoid hammering database when empty or failing
+        settings = dict(_DEFAULTS)
+        self._cache["settings"] = settings
+        self._cache_expiry["settings"] = now + self._TTL
+        return settings
 
     async def update_settings(self, patch: dict) -> dict:
         if not self._client:
@@ -102,7 +107,12 @@ class SettingsService:
                 return keys
         except Exception as e:
             logger.warning(f"SettingsService.get_api_keys failed: {e}")
-        return self._cache.get("keys", dict(_KEY_DEFAULTS))
+        
+        # Cache fallback to avoid hammering database when empty or failing
+        keys = dict(_KEY_DEFAULTS)
+        self._cache["keys"] = keys
+        self._cache_expiry["keys"] = now + self._TTL
+        return keys
 
     async def update_api_keys(self, patch: dict) -> dict:
         if not self._client:

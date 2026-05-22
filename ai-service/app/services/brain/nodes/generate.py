@@ -52,7 +52,7 @@ async def generate(state: BrainState) -> dict:
     history = history_model
 
     system_content = await prompter.build_system_prompt(
-        mode="text",
+        mode=state.get("mode", "text"),
         facts=facts,
         memories=[]
     )

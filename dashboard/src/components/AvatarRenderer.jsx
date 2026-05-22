@@ -1,23 +1,37 @@
 /**
- * AvatarRenderer — Phase 3
- * Idle / Speaking state machine with richer moods and cute micro-animations:
- *   • 6 weighted moods per state (neutral, happy, curious, playful, sleepy, thinking)
- *   • Cute head-tilt event during idle
- *   • Occasional double-blink during idle
- *   • Sleepy: half-closed eyes, slow blink
- *   • Speaking: gentle nod, tighter saccade, snappier blink, slight smile boost
+ * AvatarRenderer — Phase 3 (ParameterBus architecture gated by USE_PARAMETER_BUS)
  *
- * Ref API:
- *   setExpression(names[], duration)  — play expression(s) for N seconds
- *   setSpeaking(bool)                 — switch idle ↔ speaking state
- *   setMouthOpen(0–1)                 — drive lip sync each frame
- *   setParameter(id, value)           — raw Core Model parameter override
- *   resetNeutral()                    — cancel active expression, return to idle
+ * New path (USE_PARAMETER_BUS = true):
+ *   ParameterBus → priority-resolved single write per param per frame
+ *   IdleLayer (P1), TrackingLayer (P2), ExpressionLayer (P4)
+ *   Physics output params blocklisted — never manually overridden
+ *   Expression fade-in / fade-out, blend mode parity with VTube Studio
+ *   Blink runs freely; expression P4 wins eye params during wink etc.
+ *   expDecay replaces framerate-dependent lerp
+ *
+ * Old path (USE_PARAMETER_BUS = false):
+ *   Original code - kept intact, no regressions.
+ *
+ * Ref API (both paths):
+ *   setExpression(names[], duration)
+ *   setSpeaking(bool)
+ *   setMouthOpen(0–1)
+ *   setParameter(id, value)
+ *   resetNeutral()
  */
 
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 import * as PIXI from 'pixi.js'
 import { Live2DModel } from 'pixi-live2d-display/cubism4'
+
+import { ParameterBus } from '../avatar/ParameterBus.js'
+import { PHYSICS_OUTPUT_PARAMS } from '../avatar/PhysicsOutputParams.js'
+import { IdleLayer } from '../avatar/layers/IdleLayer.js'
+import { TrackingLayer } from '../avatar/layers/TrackingLayer.js'
+import { ExpressionLayer } from '../avatar/layers/ExpressionLayer.js'
+
+// Flip to true + delete old path + delete this constant once QA passes all acceptance criteria.
+const USE_PARAMETER_BUS = true
 
 Live2DModel.registerTicker(PIXI.Ticker)
 
@@ -36,24 +50,20 @@ const EXPRESSION_FILES = {
   embarrassed: 'GhostChange.exp3.json',
 }
 
-// Maps LLM-annotated expression names → the closest ambient mood.
-// Applied after the expression fades so the idle baseline stays emotionally coherent.
 const EXPRESSION_TO_MOOD = {
   smile: 'happy',
-  sad: 'neutral',   // no sad mood — settle to calm neutral
-  angry: 'thinking',  // furrowed brows, withdrawn
-  ghost: 'playful',   // mischievous
-  ghost_nervous: 'curious',   // uncertain, alert
-  shadow: 'thinking',  // serious / dark
-  pupil_shrink: 'curious',   // surprised / wide-eyed
-  eyeshine_off: 'sleepy',    // dull / fatigued
+  sad: 'neutral',
+  angry: 'thinking',
+  ghost: 'playful',
+  ghost_nervous: 'curious',
+  shadow: 'thinking',
+  pupil_shrink: 'curious',
+  eyeshine_off: 'sleepy',
   wink: 'playful',
 }
 
-// ── State machine ──────────────────────────────────────────────────────────
 const STATE = { IDLE: 'idle', SPEAKING: 'speaking' }
 
-// ── Mood definitions (target parameter values) ─────────────────────────────
 const MOODS = {
   neutral: { mouthForm: 0, browForm: 0, browRaise: 0, eyeSmile: 0 },
   happy: { mouthForm: 0.65, browForm: 0.30, browRaise: 0.45, eyeSmile: 0.55 },
@@ -63,7 +73,6 @@ const MOODS = {
   thinking: { mouthForm: 0.10, browForm: -0.20, browRaise: 0.35, eyeSmile: 0 },
 }
 
-// Weighted mood pool per state — [moodKey, weight], weights sum to 1.0
 const MOOD_POOLS = {
   [STATE.IDLE]: [
     ['neutral', 0.15], ['happy', 0.35], ['curious', 0.20],
@@ -79,21 +88,26 @@ function pickWeightedMood(state) {
   const pool = MOOD_POOLS[state] ?? MOOD_POOLS[STATE.IDLE]
   const r = Math.random()
   let acc = 0
-  for (const [key, w] of pool) {
-    acc += w
-    if (r < acc) return MOODS[key]
-  }
+  for (const [key, w] of pool) { acc += w; if (r < acc) return MOODS[key] }
   return MOODS.neutral
 }
 
-// ── Module-scoped Singleton State ──────────────────────────────────────────
+// ── Module-scoped singleton ────────────────────────────────────────────────────
 let _app = null
 let _model = null
 let _loaded = false
 let _mouthOpen = 0
-let _expressionActive = false
 let _state = STATE.IDLE
-let _pendingMood = null   // set by setExpression, consumed by update loop on expiry
+
+// Old-path only
+let _expressionActive = false
+let _pendingMood = null
+
+// New-path only
+let _bus = null
+let _idleLayer = null
+let _trackingLayer = null
+let _expressionLayer = null
 
 function initSingleton(width, height) {
   if (_app) return
@@ -120,212 +134,199 @@ function initSingleton(width, height) {
       model.position.set(logicalW * 0.5, 0)
 
       const core = model.internalModel.coreModel
-      const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v))
-      let lastMs = performance.now()
-
-      // ── Blink state ──────────────────────────────────────────────────────
-      let blinkTimer = 0, blinkPhase = 0, nextBlink = 2 + Math.random() * 3
-      // Double-blink: blink twice in quick succession (cute quirk)
-      let dblBlinkPending = false
-      let dblBlinkTimer = 0, nextDblBlink = 10 + Math.random() * 10
-
-      // ── Saccade state ─────────────────────────────────────────────────────
-      let saccadeTimer = 0, nextSaccade = 1 + Math.random() * 2
-      let eyeTargetX = 0, eyeTargetY = 0, eyeX = 0, eyeY = 0
-
-      // ── Mood state ────────────────────────────────────────────────────────
-      let moodTimer = 0, nextMoodChange = 3 + Math.random() * 4
-      let currentMood = MOODS.happy
-      let mouthFormC = 0, browFormC = 0, browRaiseC = 0, eyeSmileC = 0
-
-      // ── Head tilt micro-animation (idle only) ─────────────────────────────
-      // Occasionally snaps to a cute side-tilt, holds briefly, then eases back
-      let tiltTimer = 0, nextTilt = 6 + Math.random() * 8
-      let tiltTarget = 0, tiltC = 0
-      let tiltHolding = false, tiltHoldTimer = 0, tiltHoldDuration = 0
-
-      // ── Speaking nod ──────────────────────────────────────────────────────
-      let nodPhase = 0
-
       const origCoreUpdate = core.update.bind(core)
+      const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v))
 
-      core.update = function () {
-        const now = performance.now() / 1000
-        const elapsed = Math.min((performance.now() - lastMs) / 1000, 0.1)
-        lastMs = performance.now()
+      if (USE_PARAMETER_BUS) {
+        // ── New path ─────────────────────────────────────────────────────────
+        // Neutralise SDK ExpressionManager so it writes zeros at step 3 each frame.
+        // Our bus flush at step 7 overwrites those zeros with the correct values.
+        _model.expression(null)
 
-        const speaking = _state === STATE.SPEAKING
-        const lerpSpd = speaking ? 5.0 : 3.5
+        _bus = new ParameterBus(PHYSICS_OUTPUT_PARAMS)
+        _idleLayer = new IdleLayer(_bus)
+        _trackingLayer = new TrackingLayer(_bus)
+        _expressionLayer = new ExpressionLayer(_bus, EXPRESSION_FILES)
 
-        // ── Breathing ────────────────────────────────────────────────────
-        // Slightly faster when speaking (more energetic)
-        core.setParameterValueById('ParamBreath',
-          Math.sin(now * (speaking ? 1.1 : 0.75)) * 0.5 + 0.5)
+        let lastMs = performance.now()
 
-        // ── Head movement ─────────────────────────────────────────────────
-        const swayAmt = speaking ? 0.35 : 1.0
-        const bX = (Math.sin(now * 0.31) * 12 + Math.sin(now * 0.73) * 3) * swayAmt
-        const bY = (Math.sin(now * 0.19) * 5 + Math.sin(now * 0.47) * 2) * swayAmt
-        const bZ = (Math.sin(now * 0.13) * 5 + Math.sin(now * 0.41) * 2) * swayAmt
+        core.update = function () {
+          const elapsed = Math.min((performance.now() - lastMs) / 1000, 0.1)
+          lastMs = performance.now()
 
-        // Gentle speaking nod — Y oscillation in rough speech rhythm
-        let nodY = 0
-        if (speaking) {
-          nodPhase += elapsed * 2.6
-          nodY = Math.sin(nodPhase) * 3.5
-        } else {
-          nodPhase = 0
+          _idleLayer.update(elapsed, _state)
+          _trackingLayer.update(_mouthOpen)
+          _expressionLayer.update(elapsed)
+          _bus.flush(core)
+          origCoreUpdate()
         }
 
-        // Cute idle head tilt — snap in quickly, ease back slowly
-        if (!speaking) {
-          tiltTimer += elapsed
-          if (!tiltHolding && tiltTimer >= nextTilt) {
-            tiltTarget = (Math.random() < 0.5 ? 1 : -1) * (7 + Math.random() * 7)
-            tiltTimer = 0
-            nextTilt = 6 + Math.random() * 8
-            tiltHolding = true
-            tiltHoldTimer = 0
-            tiltHoldDuration = 0.9 + Math.random() * 0.8
-          }
-        }
-        if (tiltHolding) {
-          tiltHoldTimer += elapsed
-          if (tiltHoldTimer >= tiltHoldDuration) { tiltTarget = 0; tiltHolding = false }
-        }
-        tiltC += (tiltTarget - tiltC) * elapsed * (tiltTarget !== 0 ? 6.0 : 2.2)
+      } else {
+        // ── Old path (Phase 3, unchanged) ────────────────────────────────────
+        let lastMs = performance.now()
 
-        core.setParameterValueById('ParamAngleX', bX)
-        core.setParameterValueById('ParamAngleY', bY + nodY)
-        core.setParameterValueById('ParamAngleZ', bZ + tiltC)
-        core.setParameterValueById('ParamBodyAngleX', Math.sin(now * 0.28) * 4 * swayAmt)
-        core.setParameterValueById('ParamBodyAngleZ', Math.sin(now * 0.21) * 3 * swayAmt)
+        let blinkTimer = 0, blinkPhase = 0, nextBlink = 2 + Math.random() * 3
+        let dblBlinkPending = false
+        let dblBlinkTimer = 0, nextDblBlink = 10 + Math.random() * 10
 
-        // ── Lip sync ──────────────────────────────────────────────────────
-        core.setParameterValueById('ParamMouthOpenY', _mouthOpen)
+        let saccadeTimer = 0, nextSaccade = 1 + Math.random() * 2
+        let eyeTargetX = 0, eyeTargetY = 0, eyeX = 0, eyeY = 0
 
-        // ── Mood interpolation ────────────────────────────────────────────
-        if (!_expressionActive) {
-          // Expression just expired — align ambient mood to the emotion the LLM set
-          if (_pendingMood) {
-            currentMood = _pendingMood
-            _pendingMood = null
-            moodTimer = 0
-            nextMoodChange = 3 + Math.random() * 3  // hold this mood for 3-6s before drifting
-          }
+        let moodTimer = 0, nextMoodChange = 3 + Math.random() * 4
+        let currentMood = MOODS.happy
+        let mouthFormC = 0, browFormC = 0, browRaiseC = 0, eyeSmileC = 0
 
-          moodTimer += elapsed
-          if (moodTimer >= nextMoodChange) {
-            moodTimer = 0
-            nextMoodChange = speaking
-              ? 2 + Math.random() * 2.5
-              : 3 + Math.random() * 5
-            currentMood = pickWeightedMood(_state)
+        let tiltTimer = 0, nextTilt = 6 + Math.random() * 8
+        let tiltTarget = 0, tiltC = 0
+        let tiltHolding = false, tiltHoldTimer = 0, tiltHoldDuration = 0
 
-            // Curious: look upward with a lingering gaze
-            if (currentMood === MOODS.curious) {
-              eyeTargetY = 0.45 + Math.random() * 0.30
-              nextSaccade = saccadeTimer + 3
-            }
-            // Thinking: look up-left (classic thinking glance)
-            if (currentMood === MOODS.thinking) {
-              eyeTargetX = -(0.4 + Math.random() * 0.3)
-              eyeTargetY = 0.4 + Math.random() * 0.3
-              nextSaccade = saccadeTimer + 4
+        let nodPhase = 0
+
+        core.update = function () {
+          const now = performance.now() / 1000
+          const elapsed = Math.min((performance.now() - lastMs) / 1000, 0.1)
+          lastMs = performance.now()
+
+          const speaking = _state === STATE.SPEAKING
+          const lerpSpd = speaking ? 5.0 : 3.5
+
+          core.setParameterValueById('ParamBreath',
+            Math.sin(now * (speaking ? 1.1 : 0.75)) * 0.5 + 0.5)
+
+          const swayAmt = speaking ? 0.35 : 1.0
+          const bX = (Math.sin(now * 0.31) * 12 + Math.sin(now * 0.73) * 3) * swayAmt
+          const bY = (Math.sin(now * 0.19) * 5 + Math.sin(now * 0.47) * 2) * swayAmt
+          const bZ = (Math.sin(now * 0.13) * 5 + Math.sin(now * 0.41) * 2) * swayAmt
+
+          let nodY = 0
+          if (speaking) { nodPhase += elapsed * 2.6; nodY = Math.sin(nodPhase) * 3.5 }
+          else { nodPhase = 0 }
+
+          if (!speaking) {
+            tiltTimer += elapsed
+            if (!tiltHolding && tiltTimer >= nextTilt) {
+              tiltTarget = (Math.random() < 0.5 ? 1 : -1) * (7 + Math.random() * 7)
+              tiltTimer = 0
+              nextTilt = 6 + Math.random() * 8
+              tiltHolding = true
+              tiltHoldTimer = 0
+              tiltHoldDuration = 0.9 + Math.random() * 0.8
             }
           }
-
-          const lm = elapsed * lerpSpd
-          mouthFormC += (currentMood.mouthForm - mouthFormC) * lm
-          browFormC += (currentMood.browForm - browFormC) * lm
-          browRaiseC += (currentMood.browRaise - browRaiseC) * lm
-          eyeSmileC += (currentMood.eyeSmile - eyeSmileC) * lm
-
-          // Speaking: add a slight smile boost (engaged / expressive look)
-          const mfBoost = speaking ? 0.20 : 0
-          core.setParameterValueById('ParamMouthForm', clamp(mouthFormC + mfBoost, -1, 1))
-          core.setParameterValueById('ParamBrowLForm', browFormC)
-          core.setParameterValueById('ParamBrowRForm', browFormC)
-          core.setParameterValueById('Param37', browRaiseC)
-          core.setParameterValueById('ParamEyeLSmile', eyeSmileC)
-          core.setParameterValueById('ParamEyeRSmile', eyeSmileC)
-        }
-
-        // ── Saccade ───────────────────────────────────────────────────────
-        saccadeTimer += elapsed
-        if (saccadeTimer >= nextSaccade) {
-          if (speaking) {
-            // Focus on "listener" — small central range, frequent updates
-            eyeTargetX = (Math.random() * 2 - 1) * 0.25
-            eyeTargetY = (Math.random() * 2 - 1) * 0.15
-            nextSaccade = saccadeTimer + 0.8 + Math.random() * 1.0
-          } else {
-            eyeTargetX = (Math.random() * 2 - 1) * 0.65
-            const r = Math.random()
-            if (r < 0.20) eyeTargetY = 0.5 + Math.random() * 0.35
-            else if (r < 0.35) eyeTargetY = -0.3 - Math.random() * 0.25
-            else eyeTargetY = (Math.random() * 2 - 1) * 0.4
-            nextSaccade = saccadeTimer + 1.5 + Math.random() * 2.5
+          if (tiltHolding) {
+            tiltHoldTimer += elapsed
+            if (tiltHoldTimer >= tiltHoldDuration) { tiltTarget = 0; tiltHolding = false }
           }
-        }
-        const gzSpd = speaking ? 5.0 : 3.5
-        eyeX += (eyeTargetX - eyeX) * elapsed * gzSpd
-        eyeY += (eyeTargetY - eyeY) * elapsed * gzSpd
-        core.setParameterValueById('ParamEyeBallX', clamp(eyeX, -1, 1))
-        core.setParameterValueById('ParamEyeBallY', clamp(eyeY, -1, 1))
+          tiltC += (tiltTarget - tiltC) * elapsed * (tiltTarget !== 0 ? 6.0 : 2.2)
 
-        // ── Double-blink scheduler (idle only) ────────────────────────────
-        if (!speaking) {
-          dblBlinkTimer += elapsed
-          if (dblBlinkTimer >= nextDblBlink) {
-            dblBlinkPending = true
-            dblBlinkTimer = 0
-            nextDblBlink = 10 + Math.random() * 12
-          }
-        }
+          core.setParameterValueById('ParamAngleX', bX)
+          core.setParameterValueById('ParamAngleY', bY + nodY)
+          core.setParameterValueById('ParamAngleZ', bZ + tiltC)
+          core.setParameterValueById('ParamBodyAngleX', Math.sin(now * 0.28) * 4 * swayAmt)
+          core.setParameterValueById('ParamBodyAngleZ', Math.sin(now * 0.21) * 3 * swayAmt)
 
-        // ── Blink ─────────────────────────────────────────────────────────
-        const isSleepy = currentMood === MOODS.sleepy
-        // Speaking: snappy blink (11). Sleepy: slow droopy blink (6). Normal: 9
-        const bspd = speaking ? 11 : (isSleepy ? 6 : 9)
-        blinkTimer += elapsed
+          core.setParameterValueById('ParamMouthOpenY', _mouthOpen)
 
-        // Don't start a new blink while an expression is holding eye parameters (e.g. wink)
-        if (blinkPhase === 0 && blinkTimer >= nextBlink && !_expressionActive) {
-          blinkPhase = 1; blinkTimer = 0
-        }
-        if (blinkPhase === 1) {
-          const v = clamp(1 - blinkTimer * bspd, 0, 1)
-          core.setParameterValueById('ParamEyeLOpen', v)
-          core.setParameterValueById('ParamEyeROpen', v)
-          if (v <= 0) { blinkPhase = 2; blinkTimer = 0 }
-        } else if (blinkPhase === 2) {
-          const v = clamp(blinkTimer * bspd, 0, 1)
-          core.setParameterValueById('ParamEyeLOpen', v)
-          core.setParameterValueById('ParamEyeROpen', v)
-          if (v >= 1) {
-            blinkPhase = 0; blinkTimer = 0
-            if (dblBlinkPending) {
-              nextBlink = 0.06 + Math.random() * 0.08  // blink again almost immediately
-              dblBlinkPending = false
-            } else if (isSleepy) {
-              nextBlink = 1.5 + Math.random() * 2.0    // sleepy: blinks more often
-            } else if (speaking) {
-              nextBlink = 4.0 + Math.random() * 3.0    // speaking: eyes stay open longer
-            } else {
-              nextBlink = 3.0 + Math.random() * 5.0    // normal idle
-            }
-          }
-        } else {
-          // Resting open — sleepy mode: eyes only 72% open (heavy lidded)
           if (!_expressionActive) {
-            const restOpen = isSleepy ? 0.72 : 1.0
-            core.setParameterValueById('ParamEyeLOpen', restOpen)
-            core.setParameterValueById('ParamEyeROpen', restOpen)
-          }
-        }
+            if (_pendingMood) {
+              currentMood = _pendingMood
+              _pendingMood = null
+              moodTimer = 0
+              nextMoodChange = 3 + Math.random() * 3
+            }
 
-        origCoreUpdate()
+            moodTimer += elapsed
+            if (moodTimer >= nextMoodChange) {
+              moodTimer = 0
+              nextMoodChange = speaking ? 2 + Math.random() * 2.5 : 3 + Math.random() * 5
+              currentMood = pickWeightedMood(_state)
+
+              if (currentMood === MOODS.curious) { eyeTargetY = 0.45 + Math.random() * 0.30; nextSaccade = saccadeTimer + 3 }
+              if (currentMood === MOODS.thinking) { eyeTargetX = -(0.4 + Math.random() * 0.3); eyeTargetY = 0.4 + Math.random() * 0.3; nextSaccade = saccadeTimer + 4 }
+            }
+
+            const lm = elapsed * lerpSpd
+            mouthFormC += (currentMood.mouthForm - mouthFormC) * lm
+            browFormC += (currentMood.browForm - browFormC) * lm
+            browRaiseC += (currentMood.browRaise - browRaiseC) * lm
+            eyeSmileC += (currentMood.eyeSmile - eyeSmileC) * lm
+
+            const mfBoost = speaking ? 0.20 : 0
+            core.setParameterValueById('ParamMouthForm', clamp(mouthFormC + mfBoost, -1, 1))
+            core.setParameterValueById('ParamBrowLForm', browFormC)
+            core.setParameterValueById('ParamBrowRForm', browFormC)
+            core.setParameterValueById('Param37', browRaiseC)
+            core.setParameterValueById('ParamEyeLSmile', eyeSmileC)
+            core.setParameterValueById('ParamEyeRSmile', eyeSmileC)
+          }
+
+          saccadeTimer += elapsed
+          if (saccadeTimer >= nextSaccade) {
+            if (speaking) {
+              eyeTargetX = (Math.random() * 2 - 1) * 0.25
+              eyeTargetY = (Math.random() * 2 - 1) * 0.15
+              nextSaccade = saccadeTimer + 0.8 + Math.random() * 1.0
+            } else {
+              eyeTargetX = (Math.random() * 2 - 1) * 0.65
+              const r = Math.random()
+              if (r < 0.20) eyeTargetY = 0.5 + Math.random() * 0.35
+              else if (r < 0.35) eyeTargetY = -0.3 - Math.random() * 0.25
+              else eyeTargetY = (Math.random() * 2 - 1) * 0.4
+              nextSaccade = saccadeTimer + 1.5 + Math.random() * 2.5
+            }
+          }
+          const gzSpd = speaking ? 5.0 : 3.5
+          eyeX += (eyeTargetX - eyeX) * elapsed * gzSpd
+          eyeY += (eyeTargetY - eyeY) * elapsed * gzSpd
+          core.setParameterValueById('ParamEyeBallX', clamp(eyeX, -1, 1))
+          core.setParameterValueById('ParamEyeBallY', clamp(eyeY, -1, 1))
+
+          if (!speaking) {
+            dblBlinkTimer += elapsed
+            if (dblBlinkTimer >= nextDblBlink) {
+              dblBlinkPending = true
+              dblBlinkTimer = 0
+              nextDblBlink = 10 + Math.random() * 12
+            }
+          }
+
+          const isSleepy = currentMood === MOODS.sleepy
+          const bspd = speaking ? 11 : (isSleepy ? 6 : 9)
+          blinkTimer += elapsed
+
+          if (blinkPhase === 0 && blinkTimer >= nextBlink && !_expressionActive) {
+            blinkPhase = 1; blinkTimer = 0
+          }
+          if (blinkPhase === 1) {
+            const v = clamp(1 - blinkTimer * bspd, 0, 1)
+            core.setParameterValueById('ParamEyeLOpen', v)
+            core.setParameterValueById('ParamEyeROpen', v)
+            if (v <= 0) { blinkPhase = 2; blinkTimer = 0 }
+          } else if (blinkPhase === 2) {
+            const v = clamp(blinkTimer * bspd, 0, 1)
+            core.setParameterValueById('ParamEyeLOpen', v)
+            core.setParameterValueById('ParamEyeROpen', v)
+            if (v >= 1) {
+              blinkPhase = 0; blinkTimer = 0
+              if (dblBlinkPending) {
+                nextBlink = 0.06 + Math.random() * 0.08
+                dblBlinkPending = false
+              } else if (isSleepy) {
+                nextBlink = 1.5 + Math.random() * 2.0
+              } else if (speaking) {
+                nextBlink = 4.0 + Math.random() * 3.0
+              } else { nextBlink = 3.0 + Math.random() * 5.0 }
+            }
+          } else {
+            if (!_expressionActive) {
+              const restOpen = isSleepy ? 0.72 : 1.0
+              core.setParameterValueById('ParamEyeLOpen', restOpen)
+              core.setParameterValueById('ParamEyeROpen', restOpen)
+            }
+          }
+
+          origCoreUpdate()
+        }
       }
 
       _loaded = true
@@ -350,46 +351,77 @@ export const AvatarRenderer = forwardRef(function AvatarRenderer(props, ref) {
   useImperativeHandle(ref, () => ({
     setExpression(names, duration) {
       if (!_loaded || !_model) return
+
+      if (USE_PARAMETER_BUS) {
+        _expressionLayer.setExpression(names, duration)
+        return
+      }
+
+      // ── Old path ────────────────────────────────────────────────────────────
       _expressionActive = true
 
-      // Queue the mood that best matches this expression — applied when it expires
       for (const name of names) {
         const moodKey = EXPRESSION_TO_MOOD[name]
         if (moodKey) { _pendingMood = MOODS[moodKey]; break }
       }
 
-      const merged = {}
       for (const name of names) {
         const file = EXPRESSION_FILES[name]
         if (file) _model.expression(file)
-        
+
         const c = _model.internalModel.coreModel
         if (name === 'wink') {
-          c.setParameterValueById('ParamEyeLOpen', 0.0)
-          c.setParameterValueById('ParamBrowLForm', -1.0)
-          c.setParameterValueById('ParamMouthForm', 1.0)
-        }
-        else if (name === 'pouting') {
+          const startTime = performance.now()
+          const winkInterval = setInterval(() => {
+            if (!_loaded || !_model) {
+              clearInterval(winkInterval)
+              return
+            }
+            const elapsed = (performance.now() - startTime) / 1000
+            const core = _model.internalModel.coreModel
+            if (elapsed < 0.16) {
+              const progress = elapsed / 0.16
+              core.setParameterValueById('ParamEyeLOpen', 1.0 - progress)
+              core.setParameterValueById('ParamBrowLForm', -progress)
+              core.setParameterValueById('ParamMouthForm', progress)
+            } else if (elapsed < 0.31) {
+              core.setParameterValueById('ParamEyeLOpen', 0.0)
+              core.setParameterValueById('ParamBrowLForm', -1.0)
+              core.setParameterValueById('ParamMouthForm', 1.0)
+            } else if (elapsed < 0.51) {
+              const progress = (elapsed - 0.31) / 0.20
+              core.setParameterValueById('ParamEyeLOpen', progress)
+              core.setParameterValueById('ParamBrowLForm', -1.0 + progress)
+              core.setParameterValueById('ParamMouthForm', 1.0 - progress)
+            } else {
+              core.setParameterValueById('ParamEyeLOpen', 1.0)
+              core.setParameterValueById('ParamBrowLForm', 0.0)
+              core.setParameterValueById('ParamMouthForm', 0.0)
+              clearInterval(winkInterval)
+            }
+          }, 16)
+        } else if (name === 'tongue') {
+          c.setParameterValueById('ParamMouthOpenY', 1.0)
+          c.setParameterValueById('ParamMouthForm', -1.0)
+        } else if (name === 'pouting') {
           c.setParameterValueById('ParamMouthForm', -1.0)
           c.setParameterValueById('ParamBrowLForm', -1.0)
           c.setParameterValueById('ParamBrowRForm', -1.0)
-        }
-        else if (name === 'curious idle') {
+        } else if (name === 'curious idle') {
           c.setParameterValueById('ParamBrowLForm', 0.5)
           c.setParameterValueById('ParamBrowRForm', -0.5)
-        }
-        else if (name === 'pleading') {
+        } else if (name === 'pleading') {
           c.setParameterValueById('ParamBrowLY', 1.0)
           c.setParameterValueById('ParamBrowRY', 1.0)
           c.setParameterValueById('ParamMouthForm', -0.5)
         }
       }
+
       setTimeout(() => {
         _expressionActive = false
         if (_model) {
           _model.expression()
           const c = _model.internalModel.coreModel
-          // Reset manual overrides to neutral
           c.setParameterValueById('ParamEyeLOpen', 1.0)
           c.setParameterValueById('ParamEyeROpen', 1.0)
           c.setParameterValueById('ParamBrowLForm', 0.0)
@@ -401,7 +433,6 @@ export const AvatarRenderer = forwardRef(function AvatarRenderer(props, ref) {
       }, duration * 1000)
     },
 
-    /** Switch between idle and speaking animation state */
     setSpeaking(active) {
       _state = active ? STATE.SPEAKING : STATE.IDLE
     },
@@ -411,6 +442,10 @@ export const AvatarRenderer = forwardRef(function AvatarRenderer(props, ref) {
     },
 
     resetNeutral() {
+      if (USE_PARAMETER_BUS) {
+        _expressionLayer?.clear()
+        return
+      }
       _expressionActive = false
       _model?.expression()
     },

@@ -11,7 +11,7 @@ if not os.path.exists(ENV_PATH):
 load_dotenv(ENV_PATH)
 
 from livekit import agents, rtc
-from livekit.agents import AgentSession, Agent, room_io, llm, stt, tts
+from livekit.agents import AgentSession, Agent, room_io, llm, stt, tts, StopResponse
 from livekit.plugins import noise_cancellation, silero, deepgram, openai, cartesia
 
 import logging
@@ -29,10 +29,11 @@ class AiServiceLLMStream(llm.LLMStream):
         self._auth_token = auth_token
         self._identity = identity
         self._conversation_id = conversation_id
-        self._queue = asyncio.Queue()
-        self._task = asyncio.create_task(self._run())
+        self._session: aiohttp.ClientSession | None = None
+        self._resp: aiohttp.ClientResponse | None = None
+        self._closed = False
 
-    async def _run(self):
+    async def _run(self) -> None:
         try:
             last_msg = None
             for m in reversed(self.chat_ctx.messages()):
@@ -55,43 +56,66 @@ class AiServiceLLMStream(llm.LLMStream):
                 "conversation_id": self._conversation_id
             }
 
-            async with aiohttp.ClientSession() as session:
-                async with session.post(self._endpoint, headers=headers, json=payload) as resp:
-                    resp.raise_for_status()
-                    async for line in resp.content:
-                        line = line.decode('utf-8').strip()
-                        if line.startswith("data: "):
-                            data_str = line[6:]
-                            if data_str == "[DONE]":
-                                break
-                            try:
-                                data = json.loads(data_str)
-                                if "text" in data:
-                                    delta = llm.ChoiceDelta(role="assistant", content=data["text"])
-                                    await self._queue.put(llm.ChatChunk(id=str(uuid.uuid4()), delta=delta))
-                            except Exception as e:
-                                pass
+            self._session = aiohttp.ClientSession()
+            async with self._session.post(self._endpoint, headers=headers, json=payload) as resp:
+                self._resp = resp
+                resp.raise_for_status()
+                async for line in resp.content:
+                    line = line.decode('utf-8').strip()
+                    if line.startswith("data: "):
+                        data_str = line[6:]
+                        if data_str == "[DONE]":
+                            break
+                        try:
+                            data = json.loads(data_str)
+                            if "text" in data:
+                                delta = llm.ChoiceDelta(role="assistant", content=data["text"])
+                                chunk = llm.ChatChunk(id=str(uuid.uuid4()), delta=delta)
+                                self._event_ch.send_nowait(chunk)
+                        except Exception:
+                            pass
+        except asyncio.CancelledError:
+            logger.info("AiServiceLLMStream task was cancelled. Aborting HTTP stream.")
+            raise
         except aiohttp.ClientResponseError as e:
-            # Capture detailed response info for 4xx/5xx errors
-            body = await e.response.text() if e.response else ""
+            if self._closed:
+                logger.info("AiServiceLLMStream response aborted cleanly during close.")
+                return
+            body = ""
+            if e.response:
+                try:
+                    body = await e.response.text()
+                except Exception:
+                    pass
             logger.error(f"AiServiceLLMStream HTTP error {e.status}: {e.message}. Body: {body}")
             delta = llm.ChoiceDelta(role="assistant", content=f" [sad] Network error: {e.status} {e.message}")
-            await self._queue.put(llm.ChatChunk(id=str(uuid.uuid4()), delta=delta))
+            self._event_ch.send_nowait(llm.ChatChunk(id=str(uuid.uuid4()), delta=delta))
         except Exception as e:
+            if self._closed:
+                logger.info("AiServiceLLMStream stream aborted cleanly during close.")
+                return
             logger.error(f"AiServiceLLMStream unexpected error: {e}")
             delta = llm.ChoiceDelta(role="assistant", content=f" [sad] Network error: {e}")
-            await self._queue.put(llm.ChatChunk(id=str(uuid.uuid4()), delta=delta))
+            self._event_ch.send_nowait(llm.ChatChunk(id=str(uuid.uuid4()), delta=delta))
         finally:
-            await self._queue.put(None)
+            if self._session:
+                await self._session.close()
+                self._session = None
+            self._resp = None
 
-    def __aiter__(self):
-        return self
-
-    async def __anext__(self):
-        chunk = await self._queue.get()
-        if chunk is None:
-            raise StopAsyncIteration
-        return chunk
+    async def aclose(self) -> None:
+        self._closed = True
+        if self._resp:
+            try:
+                self._resp.close()
+            except Exception:
+                pass
+        if self._session:
+            try:
+                await self._session.close()
+            except Exception:
+                pass
+        await super().aclose()
 
 class AiServiceLLM(llm.LLM):
     def __init__(self, endpoint: str, auth_token: str, identity: str, conversation_id: str):
@@ -161,7 +185,7 @@ if tts_type == "qwen":
         ref_text="",
         language="English",
         dtype=torch.bfloat16,
-        max_seq_len=384,
+        max_seq_len=512,
     )
     logger.info("Local Qwen3 TTS singleton created.")
 
@@ -178,6 +202,7 @@ else:
     TTS_PLUGIN = openai.TTS()
 
 _tts_ready_event = threading.Event()
+# Active locks or trackers can go here if needed.
 
 def _do_tts_warmup():
     """Sync warmup running in a background thread to avoid blocking process init."""
@@ -269,13 +294,37 @@ class AURAAssistant(Agent):
         await VTUBE.disconnect()
         BRIDGE.set_room(None)
 
+        if self._conversation_id and self._message_buffer:
+            logger.info(f"[on_exit] Extracting memory for {self._user_identity} ({len(self._message_buffer)} messages)...")
+            try:
+                await asyncio.wait_for(
+                    extract_and_save_memory(
+                        self._user_identity,
+                        str(self._conversation_id),
+                        messages=self._message_buffer,
+                    ),
+                    timeout=30.0,
+                )
+            except asyncio.TimeoutError:
+                logger.warning(f"[on_exit] Memory extraction timed out for {self._user_identity}")
+            except Exception as e:
+                logger.warning(f"[on_exit] Memory extraction failed: {e}")
+
     async def on_user_turn_started(self) -> None:
         self.reset_activity()
 
     # Set last user message when user done talking
     async def on_user_turn_completed(self, turn_ctx: llm.ChatContext, new_message: llm.ChatMessage) -> None:
         self.reset_activity()
-        text = new_message.text_content or ""
+        text = (new_message.text_content or "").strip()
+        
+        # If the transcribed text is completely empty or just punctuation, skip responding!
+        # This prevents false interruptions from VAD feedback or microphone clicks.
+        import re
+        if not text or not re.search(r'[a-zA-Z0-9\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf]', text):
+            logger.info("Ignoring empty user turn / false VAD trigger.")
+            raise StopResponse()
+            
         self._last_user_text = text
         
         # Buffer user message
@@ -446,13 +495,26 @@ async def voice_session(ctx: agents.JobContext):
         tts=TTS_PLUGIN,
     )
 
+    from livekit.agents import TurnHandlingOptions
+
     session = AgentSession(
         stt=stt_plugin,
-        llm=llm_plugin,
         tts=TTS_PLUGIN,
         vad=silero.VAD.load(
-            min_silence_duration=0.4,
+            min_silence_duration=1.2,  # 0.6s was triggering on natural speech pauses
             min_speech_duration=0.1
+        ),
+        # Local Qwen3 TTS takes ~2s per sentence; preemptive generation starts a
+        # second TTS stream before the first finishes, causing audio interleaving
+        # (word-soup) and LiveKit "speech not done in time" cancellation errors.
+        preemptive_generation=False,
+        turn_handling=TurnHandlingOptions(
+            interruption={
+                "enabled": True,
+                "mode": "vad",
+                "min_words": 3,   # was 1; require more words to count as real interruption
+                "min_duration": 0.8,  # was 0.6
+            }
         ),
     )
 
@@ -492,7 +554,7 @@ async def voice_session(ctx: agents.JobContext):
     if ctx.room.remote_participants:
         logger.info("TTS ready, generating greeting via LLM")
         try:
-            await session.generate_reply(instructions=instruction)
+            await session.generate_reply(instructions=instruction, allow_interruptions=False)
         except Exception as e:
             logger.warning(f"Could not deliver dynamic greeting: {e}")
 
@@ -506,14 +568,8 @@ async def voice_session(ctx: agents.JobContext):
         # Close STT session first to stop processing new audio
         await stt_session.close()
         
-        # Save memory extraction in a separate task or just await it if we're not timed out
-        if conversation_id:
-            logger.info(f"Starting memory extraction for {user_identity}...")
-            await extract_and_save_memory(
-                user_identity, 
-                str(conversation_id),
-                messages=agent_instance._message_buffer
-            )
+        # Memory extraction is handled in AURAAssistant.on_exit() which fires
+        # while the event loop is still live (before session fully tears down).
         
         if vtube_connected:
             await VTUBE.reset_to_neutral()

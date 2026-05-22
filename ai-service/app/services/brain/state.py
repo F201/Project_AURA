@@ -10,3 +10,4 @@ class BrainState(TypedDict):
     conversation_id: str
     identity: str
     stream: bool
+    mode: str  # "text" or "voice" — controls which system prompt template is used

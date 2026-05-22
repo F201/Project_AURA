@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     GROQ_API_KEY: str | None = None
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     # Default Models
-    DEFAULT_LLM_MODEL: str = "deepseek/deepseek-v3.2"
+    DEFAULT_LLM_MODEL: str = "deepseek/deepseek-v4-flash"
     DEFAULT_OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
     DEFAULT_OPENROUTER_EMBEDDING_MODEL: str = "openai/text-embedding-3-small"
     DEFAULT_OLLAMA_EMBEDDING_MODEL: str = "nomic-embed-text"

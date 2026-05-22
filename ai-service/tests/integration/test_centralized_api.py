@@ -46,7 +46,7 @@ async def test_extract_memory(async_client, monkeypatch):
         return None
     
     async def mock_generate(messages, provider=None):
-        yield "Likes tea."
+        return {"text": "Likes tea."}
     
     monkeypatch.setattr("app.api.v1.memory.memory_service.save_long_term_memory", mock_save_ltm)
     monkeypatch.setattr("app.api.v1.memory.provider_registry.generate", mock_generate)
