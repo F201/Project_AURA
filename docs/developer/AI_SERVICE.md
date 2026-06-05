@@ -19,7 +19,7 @@ FastAPI natively builds fully interactive OpenAPI documentation interfaces.
 Rather than attempting to trigger memory ingestion strictly through the React UI, you can test payloads quickly during backend hacking directly from the browser natively.
 
 1. Ensure `uvicorn` is running.
-2. Open your browser and navigate to `http://localhost:8000/docs`.
+2. Open your browser and navigate to `http://localhost:8001/docs`.
 3. You can execute `POST /api/v1/memory` uploads directly from this page, feeding fake test PDFs into the vector engine.
 
 ## Resetting Supabase Memory locally

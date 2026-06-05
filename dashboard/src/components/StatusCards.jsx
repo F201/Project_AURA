@@ -3,8 +3,6 @@ import { supabase } from '../lib/supabaseClient'
 
 export default function StatusCards() {
     const [stats, setStats] = useState({
-        uptime: '99.98%',
-        vram: '42%',
         knowledgeCount: 0,
         messageCount: 0,
     })
@@ -22,13 +20,15 @@ export default function StatusCards() {
         fetchStats()
     }, [])
 
+    const messageCapacity = Math.min(100, Math.max(8, Math.ceil((stats.messageCount / 250) * 100)));
+
     const CARDS = [
         {
             label: 'System Integrity',
             icon: 'verified_user',
             value: 'Operational',
-            color: 'text-emerald-400',
-            footer: `${stats.uptime} UPTIME — L4 DISTANCE: 0.02`,
+            color: 'bg-emerald-500',
+            textColor: 'text-emerald-400',
             bar: 94
         },
         {
@@ -36,8 +36,8 @@ export default function StatusCards() {
             icon: 'hub',
             value: stats.messageCount,
             unit: 'msgs',
-            footer: 'TOTAL CONVERSATIONAL NODES',
-            segments: [true, true, true, false]
+            color: 'bg-primary',
+            bar: messageCapacity
         },
         {
             label: 'Cognitive Depth',
@@ -45,36 +45,39 @@ export default function StatusCards() {
             value: stats.knowledgeCount,
             unit: 'kb',
             isPrimary: true,
-            footer: 'ACTIVE VECTORS IN RAG PIPELINE',
-            badges: ['psychology', 'auto_stories']
+            bar: Math.min(100, Math.max(12, stats.knowledgeCount * 5)),
+            footer: 'ACTIVE VECTORS IN RAG PIPELINE'
         },
     ]
 
     return (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {CARDS.map((card) => (
-                <div key={card.label} className="bg-white/[0.03] p-6 rounded-3xl border border-white/5 shadow-2xl relative overflow-hidden group hover:border-white/10 transition-all">
-                    <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-                        <span className="material-icons-round text-4xl">{card.icon}</span>
+                <div key={card.label} className="bg-white p-6 rounded-3xl border border-black/5 shadow-xl relative overflow-hidden group hover:border-primary/20 transition-all">
+                    <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
+                        <span className="material-icons-round text-4xl text-black">{card.icon}</span>
                     </div>
 
                     <div className="relative z-10 flex flex-col h-full">
                         <div className="flex items-center gap-2 mb-4">
-                            <span className="text-[10px] font-black text-white/40 uppercase tracking-[0.2em]">{card.label}</span>
+                            <span className="text-[10px] font-black text-black/40 uppercase tracking-[0.2em]">{card.label}</span>
                         </div>
 
                         <div className="flex items-baseline gap-2 mb-4">
-                            <span className={`text-4xl font-black tracking-tighter ${card.isPrimary ? 'text-primary' : (card.color || 'text-white')}`}>
+                            <span className={`text-4xl font-black tracking-tighter ${card.isPrimary || card.label === 'Neural Synapse' ? 'text-primary' : (card.textColor || 'text-black')}`}>
                                 {card.value}
                             </span>
-                            {card.unit && <span className="text-sm text-white/20 font-black uppercase">{card.unit}</span>}
+                            {card.unit && <span className="text-sm text-black/30 font-black uppercase">{card.unit}</span>}
                         </div>
 
-                        <div className="mt-auto pt-4 border-t border-white/5">
+                        <div className="mt-auto pt-4 border-t border-black/5">
                             {/* Progress bar */}
                             {card.bar && (
-                                <div className="mb-3 w-full bg-white/5 h-1 rounded-full overflow-hidden">
-                                    <div className="bg-emerald-400 h-full shadow-[0_0_8px_rgba(52,211,153,0.5)]" style={{ width: `${card.bar}%` }} />
+                                <div className="mb-3 w-full bg-black/5 h-1 rounded-full overflow-hidden">
+                                    <div
+                                        className={`${card.color || 'bg-primary'} h-full transition-all duration-1000 ease-out shadow-[0_0_8px_rgba(255,126,51,0.2)]`}
+                                        style={{ width: `${card.bar}%` }}
+                                    />
                                 </div>
                             )}
 
@@ -82,7 +85,7 @@ export default function StatusCards() {
                             {card.segments && (
                                 <div className="mb-3 flex items-center gap-1 h-1">
                                     {card.segments.map((active, i) => (
-                                        <div key={i} className={`h-full w-1/4 rounded-full ${active ? 'bg-primary' : 'bg-white/10'}`} />
+                                        <div key={i} className={`h-full w-1/4 rounded-full ${active ? 'bg-primary' : 'bg-black/10'}`} />
                                     ))}
                                 </div>
                             )}
@@ -98,7 +101,7 @@ export default function StatusCards() {
                                 </div>
                             )}
 
-                            <p className="text-[9px] text-white/30 font-bold uppercase tracking-wider">{card.footer}</p>
+                            <p className="text-[9px] text-black/40 font-bold uppercase tracking-wider">{card.footer || 'REAL-TIME TELEMETRY FEED'}</p>
                         </div>
                     </div>
                 </div>

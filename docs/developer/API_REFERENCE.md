@@ -1,38 +1,53 @@
 # API Reference
 
-The AURA Backend provides multiple HTTP/REST endpoints for programmatic interaction, operated via FastAPI on the `ai-service` and the lightweight auth `token-server`.
-
-## AI Service Endpoints 
-**Base URL**: `http://localhost:8000`
-
-### `POST /api/v1/chat`
-- **Description**: Primary interface for triggering a textual RAG query into the Supabase Memory database without invoking the Voice Agent.
-- **Request Body**:
-  ```json
-  {
-    "message": "What is the primary theme of the uploaded PDF?",
-    "user_id": "optional-uuid"
-  }
-  ```
-- **Response**: String containing the prompt + the RAG contextual chunks.
-
-### `POST /api/v1/memory` (Document Ingestion)
-- **Description**: Uploads a document to chunk and embed into the vector database.
-- **Content-Type**: `multipart/form-data`
-- **Parameters**: 
-  - `file`: The `.txt`, `.pdf`, or `.pptx` file payload.
-- **Response**: `200 OK` on successful parse and Supabase insertion.
+The AURA ecosystem provides several internal and external REST/SSE endpoints. The **AI Service** acts as the central brain, while the **Token Server** handles authentication.
 
 ---
 
-## Token Server Endpoints
-**Base URL**: `http://localhost:8082`
+## AI Service (Brain)
+**Base URL**: `http://localhost:8001`  
+**Authentication**: Requires `Authorization: Bearer <INTERNAL_API_KEY>` for backend-to-backend calls.
 
-### `GET /getToken`
-- **Description**: Requested by the frontend `livekit-client` upon instantiation to authorize access to the LiveKit Cloud websocket.
+### `POST /api/v1/chat/voice`
+- **Description**: Triggered by the Voice Agent. Streams an expressive response with emotion tags.
+- **Type**: Server-Sent Events (SSE)
+- **Request Body**:
+  ```json
+  {
+    "message": "User's transcribed text",
+    "identity": "unique-user-id"
+  }
+  ```
+- **Response**: A stream of JSON objects with text deltas, ending in `[DONE]`.
+
+### `POST /api/v1/memory/session`
+- **Description**: Initializes a conversation session and retrieves the user's Long-Term Memory (LTM).
+- **Request Body**: `{"identity": "user-id"}`
 - **Response**:
   ```json
   {
-    "token": "eyJhbGci..."
+    "conversation_id": "uuid",
+    "long_term_memory": "User's persistent context..."
   }
   ```
+
+### `POST /api/v1/memory/extract`
+- **Description**: Analyzes a finished chat interaction to extract new permanent facts (LTM).
+- **Request Body**: `{"chat_text": "...", "identity": "..."}`
+
+---
+
+## Token Server
+**Base URL**: `http://localhost:8082`
+
+### `GET /getToken`
+- **Description**: Generates a JWT for the frontend to connect to the LiveKit SFU.
+- **Query Params**: `identity`, `room`
+- **Response**: `{"token": "..."}`
+
+---
+
+## Swagger UI
+You can access the interactive documentation directly in your browser while the service is running:
+- **AI Service**: [http://localhost:8001/docs](http://localhost:8001/docs)
+- **Token Server**: [http://localhost:8082/docs](http://localhost:8082/docs)

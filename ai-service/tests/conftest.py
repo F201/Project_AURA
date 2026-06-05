@@ -20,6 +20,10 @@ if not env_path.exists():
     env_path = AI_SERVICE_DIR / ".env"
 load_dotenv(env_path)
 
+# ── Ensure Internal Auth Key for Tests ────────────────────────────────────────
+if not os.getenv("INTERNAL_API_KEY"):
+    os.environ["INTERNAL_API_KEY"] = "aura-test-secret"
+
 
 # ── Reusable message lists ────────────────────────────────────────────────────
 
@@ -69,3 +73,9 @@ def has_openai_key():
 
 def has_anthropic_key():
     return bool(os.getenv("ANTHROPIC_API_KEY", "").strip())
+@pytest.fixture
+async def async_client():
+    from app.main import app
+    from httpx import AsyncClient, ASGITransport
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        yield ac

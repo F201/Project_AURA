@@ -2,12 +2,15 @@
   "name": "aura-monorepo",
   "private": true,
   "version": "1.0.0",
-  "type": "module",
   "scripts": {
     "dashboard:dev": "npm run dev --prefix dashboard",
     "dashboard:build": "npm run build --prefix dashboard",
     "docs": "mkdocs serve",
-    "docs:build": "mkdocs build"
+    "docs:build": "mkdocs build",
+    "start": "pm2 start ecosystem.config.js",
+    "stop": "pm2 stop ecosystem.config.js",
+    "logs": "pm2 logs",
+    "monit": "pm2 monit"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.95.3",

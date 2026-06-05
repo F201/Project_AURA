@@ -18,3 +18,4 @@ AURA (Advanced Universal Responsive Avatar) is a seamless, local-first AI compan
 - Read the **[Installation Guide](getting-started/INSTALLATION.md)** to run AURA locally.
 - Review **[Configuration](getting-started/CONFIGURATION.md)** to correctly set up your `.env` API keys.
 - Dive into the **[Avatar Architecture](architecture/AVATAR_SYSTEM.md)** to understand how the browser-based Live2D renderer works.
+- Check the **[Quality Assurance Plan](developer/QUALITY_ASSURANCE.md)** for testing strategy.

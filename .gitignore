@@ -94,6 +94,10 @@ tmp/
 temp/
 *.tmp
 
+# Scratch workspace
+/scratch/*
+!/scratch/.gitkeep
+
 # Backup
 *.bak
 *.old

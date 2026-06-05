@@ -72,6 +72,8 @@ First run downloads AI models (~2 GB) and takes 5–10 minutes. Subsequent start
 
 Open **http://localhost:5173**. The Live2D avatar loads automatically in the browser — no additional software needed.
 
+---
+
 ### 5. Docker (optional, NVIDIA GPU required)
 
 ```bash

@@ -1,0 +1,20 @@
+Investigating the word-soup text interleaving, duplicated/garbled text generation, and garbled voice responses in AURA.
+
+1. Analysis of `aura_tts.py`:
+   - `_AuraSynthesizeStream` is created for each synthesis stream.
+   - It runs two async tasks: `_process_input()` and `_synthesize()`.
+   - `_synthesize()` parses sentence chunks from the sentence tokenizer.
+   - For each chunk, it calls `self._tts_instance._generate_audio_with_lang` inside `loop.run_in_executor(None, ...)`.
+   - Inside `_generate_audio_with_lang`, there is `with self._gen_lock:` to serialize GPU inference since Qwen3 TTS model runs locally.
+
+2. Routing and LLM Stream:
+   - The LLM stream is defined in `ai-service/app/api/v1/chat.py` at `/voice` endpoint.
+   - It gathers history, facts, settings, and api keys from DB in parallel, then streams token text deltas `data: {"text": "..."}` and ends with `data: [DONE]`.
+   - In `voice-agent/agent.py`, `AiServiceLLMStream` consumes the `/voice` stream and puts `llm.ChatChunk`s with `ChoiceDelta` into `self._queue`.
+
+3. The Interleaving Word Soup Hypothesis:
+   - When a user speaks, Deepgram STT gets interim and final transcripts.
+   - If VAD detects speech or if turn completion logic fires, LiveKit starts generating a reply.
+   - If the user speaks again, or if there is another VAD trigger, does LiveKit cancel the previous reply generation?
+   - Wait, if LiveKit's `Agent` or `VoicePipelineAgent` has an active lock, or does it start multiple concurrent generation tasks?
+   - Let's check where the `class Agent` is defined, or if there is any custom `Agent` class in the workspace.

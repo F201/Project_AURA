@@ -6,6 +6,7 @@ import { getOrCreateIdentity } from '../lib/user'
 export default function CallOverlay({ onClose, conversationId }) {
     const [status, setStatus] = useState('connecting')
     const [elapsed, setElapsed] = useState(0)
+    const [muted, setMuted] = useState(false)
     const roomRef = useRef(null)
     const timerRef = useRef(null)
     const avatarRef = useRef(null)
@@ -13,6 +14,8 @@ export default function CallOverlay({ onClose, conversationId }) {
     const analyserRef = useRef(null)
     const lipRafRef = useRef(null)
     const speakTimeoutRef = useRef(null)
+    // Unique room per session so server-side agent always starts fresh on reconnect
+    const sessionRoomRef = useRef(`aura-room-${Date.now()}`)
 
     // ─── Connect to LiveKit ──────────────────────
     useEffect(() => {
@@ -28,7 +31,7 @@ export default function CallOverlay({ onClose, conversationId }) {
                 const identity = getOrCreateIdentity()
 
                 // Fetch token from token server
-                let url = `http://${window.location.hostname}:8082/getToken?room=aura-room&identity=${encodeURIComponent(identity)}`
+                let url = `http://${window.location.hostname}:8082/getToken?room=${encodeURIComponent(sessionRoomRef.current)}&identity=${encodeURIComponent(identity)}`
                 if (conversationId) url += `&conversation_id=${encodeURIComponent(conversationId)}`
 
                 const res = await fetch(url)
@@ -132,10 +135,15 @@ export default function CallOverlay({ onClose, conversationId }) {
         onClose()
     }
 
-    const formatTime = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
+    const toggleMute = useCallback(async () => {
+        const room = roomRef.current
+        if (!room) return
+        const newMuted = !muted
+        await room.localParticipant.setMicrophoneEnabled(!newMuted)
+        setMuted(newMuted)
+    }, [muted])
 
-    const vw = window.innerWidth
-    const vh = window.innerHeight
+    const formatTime = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
 
     return (
         <div className="fixed inset-0 z-50 bg-white/95 backdrop-blur-xl animate-in fade-in duration-500">
@@ -180,10 +188,19 @@ export default function CallOverlay({ onClose, conversationId }) {
                         <span className="material-icons-round text-4xl group-hover:rotate-90 transition-transform">close</span>
                     </button>
 
-                    {/* Placeholder for future mic toggle/settings */}
-                    <div className="w-12 h-12 rounded-full border border-slate-200 flex items-center justify-center text-slate-400 opacity-50">
-                        <span className="material-icons-round">mic</span>
-                    </div>
+                    {/* Mute toggle */}
+                    <button
+                        type="button"
+                        onClick={toggleMute}
+                        className={`w-12 h-12 rounded-full border flex items-center justify-center transition-all duration-300 cursor-pointer ${
+                            muted 
+                                ? 'bg-red-500 border-red-500 text-white hover:bg-red-600' 
+                                : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100 hover:border-slate-300'
+                        }`}
+                        title={muted ? 'Unmute microphone' : 'Mute microphone'}
+                    >
+                        <span className="material-icons-round">{muted ? 'mic_off' : 'mic'}</span>
+                    </button>
                 </div>
             </div>
         </div>

@@ -14,7 +14,7 @@ import StatusCards from '../components/StatusCards'
 import SystemLogs from '../components/SystemLogs'
 import { getOrCreateIdentity } from '../lib/user'
 
-const AI_SERVICE = `http://${window.location.hostname}:8000/api/v1`
+const AI_SERVICE = `http://${window.location.hostname}:8001/api/v1`
 
 export default function ChatPage() {
     const [conversations, setConversations] = useState([])
@@ -27,6 +27,7 @@ export default function ChatPage() {
     const feedRef = useRef(null)
     const presenceRef = useRef(null)
     const navigate = useNavigate()
+    const sessionModifiedRef = useRef(false)
 
     // ─── Load data on mount ────────────────
     useEffect(() => {
@@ -36,7 +37,10 @@ export default function ChatPage() {
 
     // ─── Load messages when active conversation changes ──
     useEffect(() => {
-        if (activeConvoId) loadMessages(activeConvoId)
+        if (activeConvoId) {
+            loadMessages(activeConvoId)
+            sessionModifiedRef.current = false // Reset modification tracker on convo switch
+        }
         else setMessages([])
     }, [activeConvoId])
 
@@ -47,11 +51,24 @@ export default function ChatPage() {
         }
     }, [messages])
 
+    // --- Tab-out Persistence ---
+    useEffect(() => {
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'hidden' && activeConvoId) {
+                finalizeSession(activeConvoId)
+            }
+        }
+        document.addEventListener('visibilitychange', handleVisibilityChange)
+        return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }, [activeConvoId])
+
     // ─── Data fetching ──────────────────────────────
     const loadConversations = async () => {
         const { data } = await supabase
             .from('conversations')
             .select('*')
+            .not('title', 'ilike', 'Voice Session%')
+            .not('title', 'ilike', 'New Conversation%')
             .order('updated_at', { ascending: false })
         if (data) setConversations(data)
     }
@@ -90,8 +107,34 @@ export default function ChatPage() {
         await supabase.from('personality_settings').update(patch).eq('id', 1)
     }
 
+    // ─── Session Persistence ────────────────────────
+    const finalizeSession = async (convoId) => {
+        if (!convoId || !sessionModifiedRef.current) return
+
+        console.log(`[AURA] Finalizing session for LTM: ${convoId}`)
+        sessionModifiedRef.current = false // Immediately reset to prevent double-calls
+
+        try {
+            const identity = getOrCreateIdentity()
+            await fetch(`${AI_SERVICE}/chat/persist`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    conversation_id: convoId,
+                    identity: identity,
+                    messages: []
+                }),
+            })
+        } catch (err) {
+            console.error('[AURA] Persistence error:', err)
+        }
+    }
+
     // ─── New chat ───────────────────────────────────
     const handleNewChat = async () => {
+        // Persist the current session before starting a new one
+        if (activeConvoId) finalizeSession(activeConvoId)
+
         const { data } = await supabase
             .from('conversations')
             .insert({ title: 'New Chat' })
@@ -111,6 +154,7 @@ export default function ChatPage() {
 
         isSendingRef.current = true
         setIsSending(true)
+        sessionModifiedRef.current = true // Mark session as modified
 
         let convoId = activeConvoId
         if (!convoId) {
@@ -172,8 +216,11 @@ export default function ChatPage() {
                             if (data.text) {
                                 fullText += data.text
 
-                                // Scrub residual [emotion] tags using a global regex for clean UI
-                                const scrubbedText = fullText.replace(/\[.*?\]/g, '').trim()
+                                // Scrub residual [emotion] tags, including partial ones at the end, for a clean UI
+                                const scrubbedText = fullText
+                                    .replace(/\[[\s\S]*?\]/g, '') // Remove complete tags
+                                    .replace(/\[[\s\S]*$/g, '')   // Hide partial tags at the end of the stream
+                                    .trim()
 
                                 setMessages(prev => prev.map(m =>
                                     m.id === aiMsgId ? { ...m, content: scrubbedText } : m
@@ -225,7 +272,10 @@ export default function ChatPage() {
                 <Sidebar
                     conversations={conversations}
                     activeId={activeConvoId}
-                    onSelect={setActiveConvoId}
+                    onSelect={(id) => {
+                        if (activeConvoId && id !== activeConvoId) finalizeSession(activeConvoId)
+                        setActiveConvoId(id)
+                    }}
                     onNewChat={handleNewChat}
                 />
             </div>
@@ -233,7 +283,10 @@ export default function ChatPage() {
             {/* Main Interactive Region */}
             <main className="flex-1 flex flex-col relative overflow-hidden">
                 <ChatHeader
-                    onCallStart={() => setIsCallActive(true)}
+                    onCallStart={() => {
+                        if (activeConvoId) finalizeSession(activeConvoId)
+                        setIsCallActive(true)
+                    }}
                     isCallActive={isCallActive}
                     onTuningOpen={() => navigate('/admin')}
                 />
@@ -255,7 +308,7 @@ export default function ChatPage() {
             {isCallActive && (
                 <CallOverlay
                     onClose={() => setIsCallActive(false)}
-                    conversationId={activeConvoId}
+                    conversationId={null}
                 />
             )}
         </div>

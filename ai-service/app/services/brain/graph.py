@@ -8,13 +8,11 @@ from app.services.brain.nodes.generate import generate_response
 workflow = StateGraph(BrainState)
 
 # Add nodes
-workflow.add_node("detect_emotion", detect_emotion)
-workflow.add_node("generate_response", generate_response)
+workflow.add_node("generate", generate_response)
 
 # Add edges
-workflow.set_entry_point("detect_emotion")
-workflow.add_edge("detect_emotion", "generate_response")
-workflow.add_edge("generate_response", END)
+workflow.set_entry_point("generate")
+workflow.add_edge("generate", END)
 
 # Compile graph
 brain = workflow.compile()

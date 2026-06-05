@@ -78,10 +78,36 @@ export const AvatarRenderer = forwardRef<AvatarHandle, Props>(
           if (file) model.expression(file)
 
           if (name === 'wink') {
-            const c = model.internalModel.coreModel
-            c.setParameterValueById('EyeOpenLeft', 0.0)
-            c.setParameterValueById('BrowLeftY',   0.0)
-            c.setParameterValueById('MouthSmile',  1.0)
+            const startTime = performance.now()
+            const winkInterval = setInterval(() => {
+              const currentModel = modelRef.current
+              if (!currentModel) {
+                clearInterval(winkInterval)
+                return
+              }
+              const elapsed = (performance.now() - startTime) / 1000
+              const core = currentModel.internalModel.coreModel
+              if (elapsed < 0.16) {
+                const progress = elapsed / 0.16
+                core.setParameterValueById('EyeOpenLeft', 1.0 - progress)
+                core.setParameterValueById('BrowLeftY',   -progress)
+                core.setParameterValueById('MouthSmile',  progress)
+              } else if (elapsed < 0.31) {
+                core.setParameterValueById('EyeOpenLeft', 0.0)
+                core.setParameterValueById('BrowLeftY',   -1.0)
+                core.setParameterValueById('MouthSmile',  1.0)
+              } else if (elapsed < 0.51) {
+                const progress = (elapsed - 0.31) / 0.20
+                core.setParameterValueById('EyeOpenLeft', progress)
+                core.setParameterValueById('BrowLeftY',   -1.0 + progress)
+                core.setParameterValueById('MouthSmile',  1.0 - progress)
+              } else {
+                core.setParameterValueById('EyeOpenLeft', 1.0)
+                core.setParameterValueById('BrowLeftY',   0.0)
+                core.setParameterValueById('MouthSmile',  0.0)
+                clearInterval(winkInterval)
+              }
+            }, 16)
           }
           if (name === 'tongue') {
             const c = model.internalModel.coreModel

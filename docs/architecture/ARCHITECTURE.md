@@ -22,7 +22,7 @@ graph LR
     subgraph Local ["Local Services"]
         direction TB
         Dash["Dashboard\n(Vite :5173)"]
-        AI["AI Service\n(FastAPI :8000)"]
+        AI["AI Service\n(FastAPI :8001)"]
         Voice["Voice Agent\n(Python)"]
         Token["Token Server\n(:8082)"]
     end
@@ -31,7 +31,7 @@ graph LR
         direction TB
         LiveKit["LiveKit Cloud\n(WebRTC)"]
         Supabase[("Supabase\nPostgres + pgvector")]
-        OpenRouter["OpenRouter\n(LLM)"]
+        OpenRouter["OpenRouter / Anthropic / OpenAI\n(LLM Providers)"]
         Deepgram["Deepgram\n(STT Nova-3)"]
     end
 
@@ -42,13 +42,17 @@ graph LR
     User <--> Dash
     User -- "Audio stream" <--> LiveKit
     Dash -- "Get token" --> Token
-    Dash -- "Text chat / RAG" --> AI
+    Dash -- "RAG / Chat / Settings" --> AI
     Dash -- "WebRTC" --> LiveKit
+    
+    %% The Brain Interaction
     AI -- "Memory / vectors" --> Supabase
-    AI -- "LLM" --> OpenRouter
+    AI -- "Centralized LLM Routing" --> OpenRouter
+    
+    %% The Voice Interaction
     LiveKit <--> Voice
     Voice -- "STT" --> Deepgram
-    Voice -- "LLM" --> OpenRouter
+    Voice -- "Inference Request" --> AI
     Voice -- "TTS" --> Qwen3
     Voice -- "Expressions (data channel)" --> Dash
 ```
@@ -67,10 +71,10 @@ graph LR
 
 ### 3.2 Voice Agent (`/voice-agent`)
 
-- `livekit-agents` v1.3+, Silero VAD
+- `livekit-agents` v1.5+, Silero VAD
 - STT: Deepgram Nova-3 (multilingual)
-- LLM: OpenRouter (DeepSeek-V3 by default)
-- TTS: `AuraTTS` class wrapping Faster-Qwen3-TTS locally
+- LLM: Thin-client integration with centralized AI Service
+- TTS: `AuraTTS` (local Qwen3) or Cartesia/OpenAI Cloud
   - `max_new_tokens` budget prevents runaway audio generation on short phrases
   - Trailing silence trimmed by `_trim_silence()` after each synthesis
 - Emotion tags from LLM output (`[happy]`, `[sad]`, etc.) parsed and forwarded to the dashboard via LiveKit data channel

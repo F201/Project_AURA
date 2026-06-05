@@ -1,15 +1,15 @@
-# AURA Voice Agent
+# AURA Voice Agent (Thin Client)
 
-LiveKit-based Python agent that handles the full voice pipeline: speech recognition, LLM inference, TTS synthesis, and avatar expression triggering.
+A specialized LiveKit worker that handles the real-time voice loop. It acts as a **thin client**, delegating complex reasoning and memory retrieval to the centralized `ai-service`.
 
 ## Pipeline
 
 ```
-Microphone → LiveKit (WebRTC) → Deepgram STT → OpenRouter LLM → Qwen3-TTS → LiveKit → Browser
-                                                      ↓
-                                              Emotion tag parsing
-                                                      ↓
-                                        Avatar Bridge (data channel) → Live2D expressions
+Microphone → LiveKit (WebRTC) → Deepgram STT → [AI SERVICE (Brain)] → Qwen3-TTS → LiveKit → Browser
+                                                       ↓
+                                               Emotion tag parsing
+                                                       ↓
+                                         Avatar Bridge (data channel) → Live2D expressions
 ```
 
 ## Tech Stack

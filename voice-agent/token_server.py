@@ -80,6 +80,6 @@ class TokenHandler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    print(f"🔑 AURA Token Server running on http://localhost:{PORT}")
+    print(f"[TokenServer] AURA Token Server running on http://localhost:{PORT}")
     print(f"   LiveKit URL: {LIVEKIT_URL}")
     HTTPServer(("0.0.0.0", PORT), TokenHandler).serve_forever()

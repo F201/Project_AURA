@@ -1,6 +1,8 @@
 import requests
 import json
+import pytest
 
+@pytest.mark.integration
 def test_chat_rag():
     print("Testing AURA LLM with RAG Knowledge...")
     url = "http://localhost:8001/api/v1/chat"
@@ -22,8 +24,7 @@ def test_chat_rag():
         else:
             print(f"Error: {response.status_code}")
             print(response.text)
+    except requests.exceptions.ConnectionError:
+        pytest.skip("Service not running on port 8001")
     except Exception as e:
         print(f"Connection failed: {e}")
-
-if __name__ == "__main__":
-    test_chat_rag()

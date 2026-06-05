@@ -70,14 +70,24 @@ class NonRetryableError(Exception):
 
 def parse_emotion(raw: str) -> tuple[str, str]:
     """
-    Extract the leading [emotion, tag] from a raw LLM response.
-    Returns (emotion_string, cleaned_text).
+    Extract the first [emotion] tag from the response as the primary emotion,
+    and return the text with ALL [tags] removed.
     """
     stripped = raw.strip()
-    match = re.match(r'^\[(.*?)\]', stripped)
-    if match:
-        return match.group(1), stripped[match.end():].strip()
-    return "neutral", stripped
+    
+    # 1. Find the first tag to determine the primary emotion
+    first_tag_match = re.search(r'\[(.*?)\]', stripped)
+    primary_emotion = first_tag_match.group(1) if first_tag_match else "neutral"
+    
+    # 2. Remove ALL [tags] from the text for a clean display
+    # This regex removes anything inside brackets, including the brackets
+    clean_text = re.sub(r'\[.*?\]', '', stripped).strip()
+    
+    # Optional: If stripping all tags leaves the text empty, return the original
+    if not clean_text and stripped:
+        return primary_emotion, stripped
+        
+    return primary_emotion, clean_text
 
 
 def make_result(

@@ -8,11 +8,21 @@ echo.
 
 :: ─── Cleanup Existing Services ──────────────
 echo Cleaning up existing AURA services...
+powershell -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*agent.py*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }" >nul 2>&1
+powershell -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*token_server.py*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }" >nul 2>&1
+powershell -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*uvicorn*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }" >nul 2>&1
+powershell -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*vite*' -or $_.CommandLine -like '*npm run dev*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }" >nul 2>&1
+
 taskkill /F /FI "WINDOWTITLE eq AURA Token Server" /T >nul 2>&1
 taskkill /F /FI "WINDOWTITLE eq AURA Voice Agent" /T >nul 2>&1
 taskkill /F /FI "WINDOWTITLE eq AURA AI Service" /T >nul 2>&1
 taskkill /F /FI "WINDOWTITLE eq AURA Dashboard" /T >nul 2>&1
-timeout /t 1 /nobreak >nul
+
+:: Force kill anything on ports 8000, 8001, 8082
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr :8000') do taskkill /F /PID %%a >nul 2>&1
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr :8001') do taskkill /F /PID %%a >nul 2>&1
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr :8082') do taskkill /F /PID %%a >nul 2>&1
+timeout /t 2 /nobreak >nul
 
 :: ─── 0. Setup Virtual Environments ──────────
 echo [0/4] Checking environments...
@@ -55,17 +65,17 @@ for /f "tokens=2 delims==" %%a in ('findstr /I "^TTS_TYPE=" ".env"') do set "TTS
 
 if /I "%TTS_TYPE%"=="qwen" (
     echo Detect TTS_TYPE=qwen. Verifying 'aura' conda environment...
-    call conda env list | findstr /R "\<aura\>" >nul
+    call conda env list 2>nul | findstr /R "\<aura\>" >nul
     if %errorlevel% neq 0 (
-        echo [ERROR] Conda environment 'aura' not found!
-        echo Since you have TTS_TYPE=qwen, this environment is REQUIRED for GPU acceleration.
-        echo Please run: conda env create -f voice-agent\environment.yml
-        echo Or change TTS_TYPE=cartesia in .env to use cloud TTS.
+        echo [WARNING] Conda environment 'aura' not found or conda is not in PATH.
+        echo Since you have TTS_TYPE=qwen, conda 'aura' is recommended for GPU acceleration.
+        echo Attempting to fall back to starting in the standard venv instead...
         echo.
-        pause
-        exit /b 1
+        timeout /t 3 >nul
+        start "AURA Voice Agent" cmd /k "cd voice-agent & venv\Scripts\activate & python agent.py dev"
+    ) else (
+        start "AURA Voice Agent" cmd /k "cd voice-agent & conda activate aura & python agent.py dev"
     )
-    start "AURA Voice Agent" cmd /k "cd voice-agent & conda activate aura & python agent.py dev"
 ) else (
     echo Detect TTS_TYPE=%TTS_TYPE% ^(Cloud^). Using standard venv...
     start "AURA Voice Agent" cmd /k "cd voice-agent & venv\Scripts\activate & python agent.py dev"
@@ -73,8 +83,8 @@ if /I "%TTS_TYPE%"=="qwen" (
 timeout /t 2 /nobreak >nul
 
 :: ─── 3. AI Service (direct) ──────
-echo [3/4] Starting AI Service (port 8000)...
-start "AURA AI Service" cmd /k "cd ai-service & venv\Scripts\activate & python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+echo [3/4] Starting AI Service (port 8001)...
+start "AURA AI Service" cmd /k "cd ai-service & venv\Scripts\activate & python -m uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload"
 timeout /t 2 /nobreak >nul
 
 :: ─── 4. Dashboard ───────────────────────────
@@ -88,3 +98,4 @@ timeout /t 5 /nobreak >nul
 echo.
 echo All services running! Close this window or CTRL+C to stop.
 pause
+z

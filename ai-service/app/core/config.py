@@ -31,18 +31,21 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: str | None = None
     GROQ_API_KEY: str | None = None
     OLLAMA_BASE_URL: str = "http://localhost:11434"
-    OPENAI_MODEL: str = "gpt-3.5-turbo"
+    # Default Models
+    DEFAULT_LLM_MODEL: str = "deepseek/deepseek-v4-flash"
+    DEFAULT_OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
+    DEFAULT_OPENROUTER_EMBEDDING_MODEL: str = "openai/text-embedding-3-small"
+    DEFAULT_OLLAMA_EMBEDDING_MODEL: str = "nomic-embed-text"
 
-    # Supabase
-    SUPABASE_URL: str = ""
-    SUPABASE_SERVICE_KEY: str = ""
-    VITE_SUPABASE_URL: str = ""
-    VITE_SUPABASE_ANON_KEY: str = ""
+    SUPABASE_URL: str | None = None
+    SUPABASE_SERVICE_KEY: str | None = None
+    INTERNAL_API_KEY: str | None = None
 
-    class Config:
-        env_file = str(ENV_PATH)
-        env_file_encoding = 'utf-8'
-        extra = "ignore" # Ignore extra fields
+    model_config = {
+        "env_file": str(ENV_PATH),
+        "env_file_encoding": "utf-8",
+        "extra": "ignore"
+    }
 
 settings = Settings()
 
