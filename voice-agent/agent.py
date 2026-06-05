@@ -36,13 +36,27 @@ class AiServiceLLMStream(llm.LLMStream):
     async def _run(self) -> None:
         try:
             last_msg = None
-            for m in reversed(self.chat_ctx.messages()):
+            last_user_idx = -1
+            messages = list(self.chat_ctx.messages())
+            for i in range(len(messages) - 1, -1, -1):
+                m = messages[i]
                 if m.role == "user" and m.text_content:
+                    last_user_idx = i
                     last_msg = m.text_content
                     break
 
             if not last_msg:
                 last_msg = "Hello"
+
+            history = []
+            if last_user_idx != -1:
+                for m in messages[:last_user_idx]:
+                    role_str = str(m.role)
+                    if role_str in ("user", "assistant") and m.text_content:
+                        history.append({
+                            "role": role_str,
+                            "content": m.text_content
+                        })
 
             headers = {
                 "X-Internal-API-Key": self._auth_token,
@@ -53,7 +67,8 @@ class AiServiceLLMStream(llm.LLMStream):
                 "message": str(last_msg),
                 "stream": True,
                 "identity": self._identity,
-                "conversation_id": self._conversation_id
+                "conversation_id": self._conversation_id,
+                "history": history
             }
 
             self._session = aiohttp.ClientSession()
@@ -367,6 +382,18 @@ class AURAAssistant(Agent):
 # Called When user join the room
 async def voice_session(ctx: agents.JobContext):
     logger.info(f"Voice session starting (Job assigned) for room: {ctx.room.name}")
+
+    # Wait for the background TTS warmup to finish before connecting to the room.
+    # Connecting while loading the model starves the GIL, causing signal connection timeouts.
+    if not _tts_ready_event.is_set():
+        logger.info("Waiting for background TTS warmup to finish before connecting...")
+        loop = asyncio.get_event_loop()
+        ready = await loop.run_in_executor(None, lambda: _tts_ready_event.wait(60.0))
+        if not ready:
+            logger.warning("TTS warmup timed out after 60s, proceeding anyway...")
+        else:
+            logger.info("TTS warmup finished, proceeding to connect.")
+
     await ctx.connect()
     logger.info(f"User connected: {ctx.room.name}")
 
@@ -542,14 +569,8 @@ async def voice_session(ctx: agents.JobContext):
         "Example: 'Hello! I'm AURA, your personal AI assistant. How can I help you today?'"
     )
 
-    # Wait for the background TTS warmup to finish before speaking.
-    # Awaiting the event allows the loop to stay responsive for STT/RTC heartbeats.
-    if not _tts_ready_event.is_set():
-        logger.info("Waiting for background TTS warmup to finish...")
-        loop = asyncio.get_event_loop()
-        ready = await loop.run_in_executor(None, lambda: _tts_ready_event.wait(60.0))
-        if not ready:
-            logger.warning("TTS warmup timed out after 60s, proceeding anyway...")
+    # Warmup has already been waited for before ctx.connect() at session start.
+    pass
 
     if ctx.room.remote_participants:
         logger.info("TTS ready, generating greeting via LLM")

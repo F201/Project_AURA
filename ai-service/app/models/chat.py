@@ -1,11 +1,17 @@
 from pydantic import BaseModel
 from typing import Optional
 
+class ChatMessageModel(BaseModel):
+    role: str
+    content: str
+    emotion: str = "neutral"
+
 class ChatRequest(BaseModel):
     message: str
     conversation_id: Optional[str] = None 
     identity: Optional[str] = None
     stream: bool = False
+    history: Optional[list[ChatMessageModel]] = None
 
 class ChatResponse(BaseModel):
     text: str
@@ -27,12 +33,8 @@ class MemoryExtractionRequest(BaseModel):
     identity: str
     chat_text: Optional[str] = None
 
-class ChatMessageModel(BaseModel):
-    role: str
-    content: str
-    emotion: str = "neutral"
-
 class PersistRequest(BaseModel):
     conversation_id: str
     identity: Optional[str] = None
     messages: list[ChatMessageModel]
+

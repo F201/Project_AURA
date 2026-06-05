@@ -34,5 +34,13 @@ pkill -f "agent.py dev" 2>/dev/null
 pkill -f "app.main:app" 2>/dev/null
 pkill -f "vite.*dashboard" 2>/dev/null
 
+# Clean up lingering processes on AURA ports (8082, 8001, 5173)
+for port in 8082 8001 5173; do
+    pid=$(lsof -t -i :$port 2>/dev/null)
+    if [ -n "$pid" ]; then
+        kill -9 $pid 2>/dev/null
+    fi
+done
+
 echo ""
 echo "All AURA services stopped."

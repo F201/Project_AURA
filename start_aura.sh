@@ -76,22 +76,26 @@ fi
 if [ "$(echo "$TTS_TYPE" | tr '[:upper:]' '[:lower:]')" = "qwen" ]; then
     echo "Detect TTS_TYPE=qwen. Verifying 'aura' conda environment..."
     if ! conda env list 2>/dev/null | grep -q "\baura\b"; then
-        echo "[ERROR] Conda environment 'aura' not found!"
-        echo "Since you have TTS_TYPE=qwen, this environment is REQUIRED for GPU acceleration."
-        echo "Please run: conda env create -f voice-agent/environment.yml"
-        echo "Or change TTS_TYPE=cartesia in .env to use cloud TTS."
+        echo "[WARNING] Conda environment 'aura' not found or conda is not in PATH."
+        echo "Since you have TTS_TYPE=qwen, conda 'aura' is recommended for GPU acceleration."
+        echo "Attempting to fall back to starting in the standard venv instead..."
         echo ""
-        # cleanup
-        bash ./stop_aura.sh
-        exit 1
+        sleep 3
+        (
+            cd voice-agent || exit
+            source venv/bin/activate
+            python agent.py dev
+        ) &
+        echo $! >> "$PID_FILE"
+    else
+        (
+            cd voice-agent || exit
+            eval "$(conda shell.bash hook 2>/dev/null || echo '')"
+            conda activate aura
+            python agent.py dev
+        ) &
+        echo $! >> "$PID_FILE"
     fi
-    (
-        cd voice-agent || exit
-        eval "$(conda shell.bash hook 2>/dev/null || echo '')"
-        conda activate aura
-        python agent.py dev
-    ) &
-    echo $! >> "$PID_FILE"
 else
     echo "Detect TTS_TYPE=$TTS_TYPE (Cloud). Using standard venv..."
     (
@@ -104,11 +108,11 @@ fi
 sleep 2
 
 # 3. AI Service
-echo "[3/4] Starting AI Service (port 8000)..."
+echo "[3/4] Starting AI Service (port 8001)..."
 (
     cd ai-service || exit
     source venv/bin/activate
-    python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    python -m uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
 ) &
 echo $! >> "$PID_FILE"
 sleep 2

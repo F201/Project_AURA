@@ -260,3 +260,33 @@ def test_backend_url_strips_full_api_path():
     # Ensure downstream URL composition is correct
     base = derive("http://127.0.0.1:8001/api/v1/chat/voice")
     assert f"{base}/api/v1/memory/session" == "http://127.0.0.1:8001/api/v1/memory/session"
+
+
+@pytest.mark.asyncio
+async def test_voice_uses_provided_history(async_client, mock_memory, mock_stream_happy):
+    """
+    MUST use the provided history from the request payload and
+    MUST NOT call memory_service.get_history().
+    """
+    from app.core.config import settings
+    
+    payload = {
+        "message": "how are you?",
+        "identity": "user-1",
+        "conversation_id": "aaaaaaaa-0000-0000-0000-000000000001",
+        "history": [
+            {"role": "user", "content": "hello"},
+            {"role": "assistant", "content": "hi there"}
+        ]
+    }
+    
+    async with async_client.stream(
+        "POST", "/api/v1/chat/voice",
+        json=payload,
+        headers=_auth_headers(settings),
+    ) as resp:
+        assert resp.status_code == 200
+        await _collect_sse(resp)
+
+    mock_memory.get_history.assert_not_called()
+

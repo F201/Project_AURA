@@ -203,8 +203,13 @@ async def chat_voice(request: ChatRequest):
             _t0 = _time.time()
             # Fetch all DB data in parallel — warms settings/keys cache so prompter
             # and registry hit cache instead of making sequential Supabase round-trips.
-            history_model, facts, _, __ = await asyncio.gather(
-                memory_service.get_history(UUID(conversation_id), session_history_window),
+            if request.history is not None:
+                history_task = asyncio.sleep(0)  # no-op
+            else:
+                history_task = memory_service.get_history(UUID(conversation_id), session_history_window)
+
+            history_res, facts, _, __ = await asyncio.gather(
+                history_task,
                 memory_service.get_long_term_memories(identity=request.identity or "anonymous", limit=5),
                 settings_service.get_settings(),
                 settings_service.get_api_keys(),
@@ -212,7 +217,10 @@ async def chat_voice(request: ChatRequest):
             logger.info(f"[Voice Perf] DB gather: {_time.time()-_t0:.3f}s")
 
             _t1 = _time.time()
-            history_dicts = [{"role": m["role"], "content": m["content"]} for m in history_model]
+            if request.history is not None:
+                history_dicts = [{"role": m.role, "content": m.content} for m in request.history]
+            else:
+                history_dicts = [{"role": m["role"], "content": m["content"]} for m in history_res]
             system_content = await prompter.build_system_prompt(mode="voice", facts=facts, memories=[])
             logger.info(f"[Voice Perf] Prompter: {_time.time()-_t1:.3f}s")
 
