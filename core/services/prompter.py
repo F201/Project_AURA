@@ -10,12 +10,17 @@ You are a memory extraction assistant. Given a conversation between a user and A
 
 class Prompter:
     def __init__(self):
-        prompt_path = os.path.join("core", "prompts", "system_prompt.md")
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        core_dir = os.path.dirname(current_dir)
+        prompt_path = os.path.join(core_dir, "prompts", "system_prompt.md")
+
+        self.base_persona = ""
+        
         try:
             with open(prompt_path, "r", encoding="utf-8") as f:
                 self.base_persona = f.read()
         except FileNotFoundError:
-            print("Persona Not Found")
+            print(f"Persona Not Found at: {prompt_path}")
 
     async def build_system_prompt(self, mode: str = "text", facts: str = "", memories: List[str] = None) -> str:
         if memories is None:

@@ -27,14 +27,14 @@ else
     echo "No .aura_pids file found."
 fi
 
-# Fallback safely without killing completely unrelated things
+# Fallback safely
 echo "Attempting to kill lingering AURA processes..."
 pkill -f "token_server.py" 2>/dev/null
 pkill -f "agent.py dev" 2>/dev/null
 pkill -f "app.main:app" 2>/dev/null
 pkill -f "vite.*dashboard" 2>/dev/null
 
-# Clean up lingering processes on AURA ports (8082, 8001, 5173)
+# Clean up ports
 for port in 8082 8001 5173; do
     pid=$(lsof -t -i :$port 2>/dev/null)
     if [ -n "$pid" ]; then

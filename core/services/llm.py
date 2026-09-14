@@ -11,7 +11,10 @@ logger = logging.getLogger(__name__)
 
 class LLMService:
     def __init__(self):
-        config_path = os.path.join("ai-core", "config", "config.json")
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        core_dir = os.path.dirname(current_dir)
+        config_path = os.path.join(core_dir, "config", "config.json")
+        
         with open(config_path, "r", encoding="utf-8") as f:
             self.config = json.load(f)["llm"]
 

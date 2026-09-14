@@ -1,24 +1,17 @@
 import json
 import logging
 import asyncio
+from uuid import UUID
 from fastapi import APIRouter, HTTPException, Depends, Security
 from fastapi.responses import StreamingResponse
 from fastapi.security.api_key import APIKeyHeader
-import re
 
 from app.core.config import settings
 from app.models.chat import ChatRequest, ChatResponse, PersistRequest
-from app.services.brain.graph import brain
-from langchain_core.messages import HumanMessage, AIMessage
-from app.services.brain.nodes.generate import session_history_window
-from app.services.providers.base import TextDelta, StreamDone
-from uuid import UUID
-from datetime import datetime
+from langchain_core.messages import HumanMessage
 
+from core.brain.graph import brain
 from core.services.memory import memory_service
-from core.services.prompter import prompter
-from app.services.providers.registry import provider_registry 
-
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -52,74 +45,29 @@ async def chat(request: ChatRequest):
         if not conversation_id:
             new_id = await memory_service.create_conversation()
             conversation_id = str(new_id) if new_id else "default"
-        
+
+        # Langgraph State
         initial_state = {
-            "messages":   [HumanMessage(content=request.message)],
-            "emotion":    "neutral",
+            "messages": [HumanMessage(content=request.message)],
+            "emotion": "neutral",
             "conversation_id": conversation_id,
             "identity": request.identity or "anonymous",
             "stream": request.stream,
-            "mode": "text",
+            "mode": "text", 
         }
 
         config = {"configurable": {"thread_id": conversation_id}}
-
-        if request.stream:
-            async def event_generator():
-                from app.services.brain.nodes.generate import session_history_window
-                from app.services.providers.registry import provider_registry
-                from app.services.settings_service import settings_service
-                from datetime import datetime
-                from uuid import UUID
-
-                # Fetch context
-                user_msg = request.message
-                
-                # Fetch dari core
-                history_model, facts = await asyncio.gather(
-                    memory_service.get_history(UUID(conversation_id), session_history_window),
-                    memory_service.get_long_term_memories(identity=request.identity or "anonymous", limit=5),
-                )
-                
-                system_content = await prompter.build_system_prompt(mode="text", facts=facts, memories=[])
-
-                messages_format = [{"role":"system", "content":system_content}] + history_model + [{"role":"user", "content":user_msg}]
-
-                full_text = ""
-                scrubbed_final = ""
-                detected_emotion = "neutral"
-
-                async for chunk in provider_registry.stream(messages_format):
-                    if isinstance(chunk, TextDelta):
-                        txt = chunk.text
-                        full_text += txt
-                        yield f"data: {json.dumps({'text': txt})}\n\n"
-                    elif isinstance(chunk, StreamDone):
-                        scrubbed_final = chunk.text
-                        detected_emotion = chunk.emotion
-
-                # 4. Final sync/persistence
-                if not scrubbed_final:
-                    # Fallback if StreamDone wasn't caught correctly
-                    from app.services.providers.base import parse_emotion
-                    detected_emotion, scrubbed_final = parse_emotion(full_text)
-
-                asyncio.create_task(memory_service.add_interaction(
-                    conversation_id=UUID(conversation_id),
-                    user_text=user_msg,
-                    assistant_text=scrubbed_final,
-                    user_emotion="neutral",
-                    assistant_emotion=detected_emotion
-                ))
-
-                yield "data: [DONE]\n\n"
-
-            return StreamingResponse(event_generator(), media_type="text/event-stream")
 
         result = await brain.ainvoke(initial_state, config=config)
 
         last_msg = result["messages"][-1].content
         emotion = result.get("emotion", "neutral")
+
+        if request.stream:
+            async def event_generator():
+                yield f"data: {json.dumps({'text': last_msg})}\n\n"
+                yield "data: [DONE]\n\n"
+            return StreamingResponse(event_generator(), media_type="text/event-stream")
         
         tools_used = []
         for msg in result["messages"]:
@@ -153,8 +101,6 @@ async def chat(request: ChatRequest):
 
 @router.post("/persist")
 async def persist_chat(request: PersistRequest):
-    from uuid import UUID
-
     conv_id = UUID(request.conversation_id)
     if request.messages:
         await memory_service.batch_add_messages(conv_id, [
@@ -176,56 +122,24 @@ async def chat_voice(request: ChatRequest):
             new_id = await memory_service.create_conversation(title=f"Voice Session: {request.identity or 'anonymous'}")
             conversation_id = str(new_id) if new_id else "default"
 
+        # Voice State
+        initial_state = {
+            "messages": [HumanMessage(content=request.message)],
+            "emotion": "neutral",
+            "conversation_id": conversation_id,
+            "identity": request.identity or "anonymous",
+            "stream": True,
+            "mode": "voice", 
+        }
+        
+        config = {"configurable": {"thread_id": conversation_id}}
+
+        result = await brain.ainvoke(initial_state, config=config)
+
+        last_msg = result["messages"][-1].content
+        
         async def voice_event_generator():
-            import time as _time
-            from app.services.settings_service import settings_service
-            user_msg = request.message
-
-            _t0 = _time.time()
-            if request.history is not None:
-                history_task = asyncio.sleep(0)  
-            else:
-                history_task = memory_service.get_history(UUID(conversation_id), session_history_window)
-
-            history_res, facts, _, __ = await asyncio.gather(
-                history_task,
-                memory_service.get_long_term_memories(identity=request.identity or "anonymous", limit=5),
-                settings_service.get_settings(),
-                settings_service.get_api_keys(),
-            )
-            logger.info(f"[Voice Perf] DB gather: {_time.time()-_t0:.3f}s")
-
-            _t1 = _time.time()
-            if request.history is not None:
-                history_dicts = [{"role": m.role, "content": m.content} for m in request.history]
-            else:
-                history_dicts = [{"role": m["role"], "content": m["content"]} for m in history_res]
-            system_content = await prompter.build_system_prompt(mode="voice", facts=facts, memories=[])
-            logger.info(f"[Voice Perf] Prompter: {_time.time()-_t1:.3f}s")
-
-            messages_format = [{"role":"system", "content":system_content}] + history_dicts + [{"role":"user", "content":user_msg}]
-
-            full_text = ""
-            scrubbed_final = ""
-            detected_emotion = "neutral"
-            _first_token = True
-
-            async for chunk in provider_registry.stream(messages_format):
-                if isinstance(chunk, TextDelta):
-                    if _first_token:
-                        _first_token = False
-                        logger.info(f"[Voice Perf] LLM first token: {_time.time()-_t1:.3f}s after prompter")
-                    txt = chunk.text
-                    full_text += txt
-                    yield f"data: {json.dumps({'text': txt})}\n\n"
-                elif isinstance(chunk, StreamDone):
-                    scrubbed_final = chunk.text
-                    detected_emotion = chunk.emotion
-
-            if not scrubbed_final:
-                from app.services.providers.base import parse_emotion
-                detected_emotion, scrubbed_final = parse_emotion(full_text)
-
+            yield f"data: {json.dumps({'text': last_msg})}\n\n"
             yield "data: [DONE]\n\n"
 
         return StreamingResponse(voice_event_generator(), media_type="text/event-stream")

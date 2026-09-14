@@ -82,9 +82,10 @@ if /I "%TTS_TYPE%"=="qwen" (
 )
 timeout /t 2 /nobreak >nul
 
-:: ─── 3. AI Service (direct) ──────
+:: ─── 3. AI Service ──────
 echo [3/4] Starting AI Service (port 8001)...
-start "AURA AI Service" cmd /k "cd ai-service & venv\Scripts\activate & python -m uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload"
+set "ROOT_DIR=%cd%"
+start "AURA AI Service" cmd /k "set PYTHONPATH=%ROOT_DIR%& cd ai-service & venv\Scripts\activate & python -m uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload"
 timeout /t 2 /nobreak >nul
 
 :: ─── 4. Dashboard ───────────────────────────
@@ -92,10 +93,6 @@ echo [4/4] Starting Dashboard (port 5173)...
 start "AURA Dashboard" cmd /k "cd dashboard & npm run dev -- --host"
 timeout /t 5 /nobreak >nul
 
-:: ─── Open browser ───────────────────────────
-@REM start http://localhost:5173
-
 echo.
 echo All services running! Close this window or CTRL+C to stop.
 pause
-z
