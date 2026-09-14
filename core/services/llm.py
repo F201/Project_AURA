@@ -1,33 +1,37 @@
 from openai import OpenAI
-from app.core.config import settings
 import logging
 import re
+import json
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
 class LLMService:
     def __init__(self):
-        self.api_key = settings.OPENROUTER_API_KEY or settings.OPENAI_API_KEY
-        self.model = settings.OPENAI_MODEL or "openai/gpt-3.5-turbo"
+        config_path = os.path.join("ai-core", "config", "config.json")
+        with open(config_path, "r", encoding="utf-8") as f:
+            self.config = json.load(f)["llm"]
+
+        self.openrouter_key = os.getenv("OPENROUTER_API_KEY")
+        self.api_key = self.openrouter_key or os.getenv("OPENAI_API_KEY")
+        self.model = os.getenv("OPENAI_MODEL") or self.config["default_model"] 
         self.client = None
-        
-        # Determine Base URL (OpenRouter vs OpenAI)
-        self.base_url = "https://openrouter.ai/api/v1" if settings.OPENROUTER_API_KEY else None
+
+        self.base_url = "https://openrouter.ai/api/v1" if self.openrouter_key else None
 
         if self.api_key:
             self.client = OpenAI(
                 api_key=self.api_key,
                 base_url=self.base_url
             )
-            logger.info(f"LLM Service Initialized. Model: {self.model}, Base: {self.base_url or 'Default'}")
+            logger.info(f"LLM Service Initialized. Model: {self.model}")
         else:
             logger.warning("API Key not set. LLMService will fail.")
 
     def generate(self, messages: list) -> dict:
-        """
-        Generates a response from the LLM based on the list of messages.
-        Expects messages to be formatted by Prompter.
-        """
         if not self.client:
             return {
                 "text": "Error: API Key is missing. I cannot think without it!",
@@ -36,24 +40,23 @@ class LLMService:
 
         try:
             extra_headers = {}
-            if settings.OPENROUTER_API_KEY:
+            if self.openrouter_key:
                 extra_headers = {
-                    "HTTP-Referer": "http://localhost:5173", # Frontend URL
+                    "HTTP-Referer": "http://localhost:5173", 
                     "X-Title": "Project AURA", 
                 }
 
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=messages,
-                temperature=0.7,
-                max_tokens=250,
+                temperature=self.config["temperature"],
+                max_tokens=self.config["max_tokens"],
                 extra_headers=extra_headers
             )
             
             content = response.choices[0].message.content
             
             # Robust parsing for emotion using Regex
-            # Matches [emotion] at the start of the string
             emotion_match = re.match(r'^\[(.*?)\]', content)
             
             emotion = "neutral"
@@ -61,7 +64,6 @@ class LLMService:
             
             if emotion_match:
                 emotion = emotion_match.group(1)
-                # Remove the emotion tag from the text
                 text = content[emotion_match.end():].strip()
             
             return {

@@ -7,17 +7,18 @@ from fastapi.security.api_key import APIKeyHeader
 import re
 
 from app.core.config import settings
-from app.services.memory_service import memory_service
 from app.models.chat import ChatRequest, ChatResponse, PersistRequest
-from app.services.memory_service import memory_service
 from app.services.brain.graph import brain
 from langchain_core.messages import HumanMessage, AIMessage
-from app.services.prompter import prompter
-from app.services.providers.registry import provider_registry
 from app.services.brain.nodes.generate import session_history_window
 from app.services.providers.base import TextDelta, StreamDone
 from uuid import UUID
 from datetime import datetime
+
+from core.services.memory import memory_service
+from core.services.prompter import prompter
+from app.services.providers.registry import provider_registry 
+
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -45,7 +46,6 @@ async def chat_get():
 
 @router.post("")
 async def chat(request: ChatRequest):
-    # Run Graph
     try:
         conversation_id = request.conversation_id
         
@@ -66,10 +66,8 @@ async def chat(request: ChatRequest):
 
         if request.stream:
             async def event_generator():
-                # 2. Setup the full context for generation
                 from app.services.brain.nodes.generate import session_history_window
                 from app.services.providers.registry import provider_registry
-                from app.services.persona import persona_engine
                 from app.services.settings_service import settings_service
                 from datetime import datetime
                 from uuid import UUID
@@ -77,6 +75,7 @@ async def chat(request: ChatRequest):
                 # Fetch context
                 user_msg = request.message
                 
+                # Fetch dari core
                 history_model, facts = await asyncio.gather(
                     memory_service.get_history(UUID(conversation_id), session_history_window),
                     memory_service.get_long_term_memories(identity=request.identity or "anonymous", limit=5),
@@ -90,15 +89,12 @@ async def chat(request: ChatRequest):
                 scrubbed_final = ""
                 detected_emotion = "neutral"
 
-                # 3. Stream from the registry directly
                 async for chunk in provider_registry.stream(messages_format):
-                    # Only yield incremental deltas to the dashboard
                     if isinstance(chunk, TextDelta):
                         txt = chunk.text
                         full_text += txt
                         yield f"data: {json.dumps({'text': txt})}\n\n"
                     elif isinstance(chunk, StreamDone):
-                        # Use the parsed results from the provider
                         scrubbed_final = chunk.text
                         detected_emotion = chunk.emotion
 
@@ -120,14 +116,11 @@ async def chat(request: ChatRequest):
 
             return StreamingResponse(event_generator(), media_type="text/event-stream")
 
-        # Non-streaming fallback
         result = await brain.ainvoke(initial_state, config=config)
-        
-        # Extract response
+
         last_msg = result["messages"][-1].content
         emotion = result.get("emotion", "neutral")
         
-        # Look for tool calls
         tools_used = []
         for msg in result["messages"]:
             if hasattr(msg, "tool_calls") and msg.tool_calls:
@@ -146,7 +139,6 @@ async def chat(request: ChatRequest):
     
     except Exception as e:
         logger.error(f"Chat error: {e}", exc_info=True)
-        # If it was a stream request, we should yield an error event
         if request.stream:
              return StreamingResponse(
                   iter([f"data: {json.dumps({'text': f'Brain Freeze: {str(e)}', 'emotion': 'confused'})}\n\n"]),
@@ -161,25 +153,14 @@ async def chat(request: ChatRequest):
 
 @router.post("/persist")
 async def persist_chat(request: PersistRequest):
-    """
-    Persist multiple messages from a session at once to the database.
-    """
     from uuid import UUID
-    conv_id = UUID(request.conversation_id)
 
-    # 1. Persist messages if provided
+    conv_id = UUID(request.conversation_id)
     if request.messages:
         await memory_service.batch_add_messages(conv_id, [
             {"role": m.role, "content": m.content, "emotion": m.emotion} 
             for m in request.messages
         ])
-
-    # 2. Extract facts from the conversation (uses existing DB history)
-    from app.services.memory_engine import memory_engine
-    asyncio.create_task(memory_engine.extract_and_save_facts(
-        conversation_id=conv_id,
-        identity=request.identity or "anonymous"
-    ))
 
     return {
         "status": "success", 
@@ -201,10 +182,8 @@ async def chat_voice(request: ChatRequest):
             user_msg = request.message
 
             _t0 = _time.time()
-            # Fetch all DB data in parallel — warms settings/keys cache so prompter
-            # and registry hit cache instead of making sequential Supabase round-trips.
             if request.history is not None:
-                history_task = asyncio.sleep(0)  # no-op
+                history_task = asyncio.sleep(0)  
             else:
                 history_task = memory_service.get_history(UUID(conversation_id), session_history_window)
 
@@ -243,14 +222,9 @@ async def chat_voice(request: ChatRequest):
                     scrubbed_final = chunk.text
                     detected_emotion = chunk.emotion
 
-            # Ensure we have parsed results
             if not scrubbed_final:
                 from app.services.providers.base import parse_emotion
                 detected_emotion, scrubbed_final = parse_emotion(full_text)
-
-            # PER USER REQUEST: Persistence is deferred to session end. 
-            # We skip per-turn add_interaction to restore latency and avoid redundant chat entries.
-            # asyncio.create_task(memory_service.add_interaction(...))
 
             yield "data: [DONE]\n\n"
 

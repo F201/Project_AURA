@@ -3,11 +3,13 @@ import pypdf
 from pptx import Presentation
 from pathlib import Path
 import logging
+from dotenv import load_dotenv
 from supabase import create_client
-from langchain_openai import OpenAIEmbeddings
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from app.core.config import settings
 
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from core.services.embeddings import get_embeddings
+
+load_dotenv()
 logger = logging.getLogger(__name__)
 
 UPLOAD_DIR = Path("data/uploads")
@@ -18,21 +20,18 @@ class RAGService:
         self.client = None
         self.embeddings = None
 
-        if settings.SUPABASE_URL and settings.SUPABASE_SERVICE_KEY:
-            self.client = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_KEY)
+        supabase_url = os.getenv("SUPABASE_URL")
+        supabase_key = os.getenv("SUPABASE_SERVICE_KEY")
+
+        if supabase_url and supabase_key:
+            self.client = create_client(supabase_url, supabase_key)
             logger.info("RAG Service connected to Supabase")
         else:
             logger.warning("Supabase credentials not set. RAG service database sync disabled.")
 
-        api_key = settings.OPENROUTER_API_KEY
-        if api_key:
-            self.embeddings = OpenAIEmbeddings(
-                api_key=api_key,
-                model="openai/text-embedding-3-small",
-                base_url="https://openrouter.ai/api/v1"
-            )
-        else:
-            logger.warning("OPENROUTER_API_KEY not set. Falling back or failing embedding generation.")
+        self.embeddings = get_embeddings()
+        if not self.embeddings:
+            logger.warning("Embeddings not initialized. Falling back or failing embedding generation.")
 
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=1000,
@@ -86,7 +85,6 @@ class RAGService:
         for i in range(0, total_chunks, batch_size):
             batch = chunks[i:i+batch_size]
             try:
-                # Process in batches to massively speed up 1000 page PDFs like textbooks
                 vectors = self.embeddings.embed_documents(batch)
                 
                 data = [
