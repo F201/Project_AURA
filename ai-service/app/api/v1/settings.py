@@ -1,11 +1,10 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
-from app.services.settings_service import settings_service
+from core.services.settings import settings_service
 
 router = APIRouter()
 
 PROVIDERS = ["openrouter", "openai", "anthropic", "groq", "ollama"]
-
 
 class SettingsPatch(BaseModel):
     system_prompt: str | None = None

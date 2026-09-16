@@ -2,21 +2,21 @@ from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 import io
 import logging
+import asyncio
 from pypdf import PdfReader
+from uuid import UUID
 from app.models.chat import SessionRequest, SessionResponse, MemoryExtractionRequest
-from app.services.providers.registry import provider_registry
 from app.api.v1.chat import verify_internal_api_key
 from core.services.memory import memory_service
 from core.services.prompter import prompter
+from core.services.llm import llm_service
+from core.services.settings import settings_service
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 @router.post("/upload")
 async def upload_memory(file: UploadFile = File(...), _ = Depends(verify_internal_api_key)):
-    """
-    Ingest a file (PDF or TXT) into Aura's memory.
-    """
     filename = file.filename
     content = await file.read()
     text = ""
@@ -52,18 +52,12 @@ async def upload_memory(file: UploadFile = File(...), _ = Depends(verify_interna
 
 @router.get("/search")
 async def search_memory(query: str, limit: int = 3, _ = Depends(verify_internal_api_key)):
-    """
-    Debug: Search memory for context.
-    """
     results = await memory_service.search(query, limit)
     return {"query": query, "results": results}
 
 
 @router.post("/session", response_model=SessionResponse)
 async def get_voice_session(request: SessionRequest, _ = Depends(verify_internal_api_key)):
-    import asyncio
-    from app.services.settings_service import settings_service
-
     conv_id = await memory_service.get_or_create_conversation(
         request.identity, 
         request.title
@@ -97,8 +91,8 @@ async def extract_and_save(request: MemoryExtractionRequest, _ = Depends(verify_
         return {"status": "skipped", "reason": "No text to extract"}
 
     messages = prompter.build_extraction_prompt(text_to_process)
-    
-    response = await provider_registry.generate(messages)
+
+    response = await asyncio.to_thread(llm_service.generate, messages)
     extracted_text = response.get("text", "")
 
     if "NO_FACTS" in extracted_text or not extracted_text.strip():
@@ -114,7 +108,6 @@ async def extract_and_save(request: MemoryExtractionRequest, _ = Depends(verify_
 
 @router.get("/history/{conversation_id}")
 async def get_history(conversation_id: str, n: int = 50, _ = Depends(verify_internal_api_key)):
-    from uuid import UUID
     try:
         history = await memory_service.get_history(UUID(conversation_id), n)
         return {"history": history}

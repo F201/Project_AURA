@@ -45,8 +45,7 @@ async def chat(request: ChatRequest):
         if not conversation_id:
             new_id = await memory_service.create_conversation()
             conversation_id = str(new_id) if new_id else "default"
-
-        # Langgraph State
+        
         initial_state = {
             "messages": [HumanMessage(content=request.message)],
             "emotion": "neutral",
@@ -65,7 +64,7 @@ async def chat(request: ChatRequest):
 
         if request.stream:
             async def event_generator():
-                yield f"data: {json.dumps({'text': last_msg})}\n\n"
+                yield f"data: {json.dumps({'text': last_msg, 'emotion': emotion})}\n\n"
                 yield "data: [DONE]\n\n"
             return StreamingResponse(event_generator(), media_type="text/event-stream")
         
@@ -122,7 +121,6 @@ async def chat_voice(request: ChatRequest):
             new_id = await memory_service.create_conversation(title=f"Voice Session: {request.identity or 'anonymous'}")
             conversation_id = str(new_id) if new_id else "default"
 
-        # Voice State
         initial_state = {
             "messages": [HumanMessage(content=request.message)],
             "emotion": "neutral",
@@ -137,9 +135,10 @@ async def chat_voice(request: ChatRequest):
         result = await brain.ainvoke(initial_state, config=config)
 
         last_msg = result["messages"][-1].content
+        emotion = result.get("emotion", "neutral")
         
         async def voice_event_generator():
-            yield f"data: {json.dumps({'text': last_msg})}\n\n"
+            yield f"data: {json.dumps({'text': last_msg, 'emotion': emotion})}\n\n"
             yield "data: [DONE]\n\n"
 
         return StreamingResponse(voice_event_generator(), media_type="text/event-stream")
@@ -147,6 +146,6 @@ async def chat_voice(request: ChatRequest):
     except Exception as e:
         logger.error(f"Voice Chat error: {e}", exc_info=True)
         return StreamingResponse(
-            iter([f"data: {json.dumps({'text': f'[sad] Brain Freeze: {str(e)}'})}\n\n"]),
+            iter([f"data: {json.dumps({'text': f'[sad] Brain Freeze: {str(e)}', 'emotion': 'sad'})}\n\n"]),
             media_type="text/event-stream"
         )

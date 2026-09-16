@@ -13,7 +13,7 @@ class Prompter:
         current_dir = os.path.dirname(os.path.abspath(__file__))
         core_dir = os.path.dirname(current_dir)
         prompt_path = os.path.join(core_dir, "prompts", "system_prompt.md")
-
+        
         self.base_persona = ""
         
         try:
@@ -33,11 +33,10 @@ class Prompter:
         
         active_persona = custom_sys if custom_sys else self.base_persona
 
-        modality_instructions = ""
         if mode == "voice":
-            modality_instructions = "[MODALITY: VOICE]\nUse tags in brackets `[tag1, tag2]` organically to punctuate emotional transitions. Keep it under 3 items per bracket. Use your FULL emotion palette (e.g., [happy], [angry, smile, smile], [ghost])."
+            modality_instructions = "[MODALITY: VOICE]\nYou MUST start your response with a primary emotion tag (e.g., [happy]). You may also use tags in brackets `[tag1, tag2]` organically to punctuate emotional transitions. Keep it under 3 items per bracket. Use your FULL emotion palette (e.g., [happy], [angry, smile, smile], [ghost])."
         else:
-            modality_instructions = "[MODALITY: TEXT]\nConverse naturally. You may use standard text expressions. Do not spam 3D expression tags."
+            modality_instructions = "[MODALITY: TEXT]\nYou MUST ALWAYS start your response with exactly ONE primary emotion tag in brackets representing your current mood (e.g., [happy], [excited], [sad], [teasing], [neutral]). After this initial tag, converse naturally and do NOT use any other expression tags in the middle of the text."
 
         system_content = f"{active_persona}\n\n{modality_instructions}\n\n**Context:**\n- Current Time: {current_time}"
 

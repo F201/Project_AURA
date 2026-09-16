@@ -58,16 +58,17 @@ class LLMService:
             )
             
             content = response.choices[0].message.content
-            
-            # Robust parsing for emotion using Regex
-            emotion_match = re.match(r'^\[(.*?)\]', content)
+
+            # Emotion Tags
+            emotion_match = re.search(r'\[([a-zA-Z_]+).*?\]', content)
             
             emotion = "neutral"
             text = content
             
             if emotion_match:
-                emotion = emotion_match.group(1)
-                text = content[emotion_match.end():].strip()
+                emotion = emotion_match.group(1).lower()
+                text = content[:emotion_match.start()] + content[emotion_match.end():]
+                text = text.strip()
             
             return {
                 "text": text,
@@ -79,7 +80,7 @@ class LLMService:
             logger.error(f"LLM Generation Error: {e}")
             return {
                 "text": f"I... I lost my train of thought. ({str(e)})",
-                "emotion": "[confused]"
+                "emotion": "confused"
             }
 
 llm_service = LLMService()
