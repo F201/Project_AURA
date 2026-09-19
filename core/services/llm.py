@@ -38,7 +38,8 @@ class LLMService:
         if not self.client:
             return {
                 "text": "Error: API Key is missing. I cannot think without it!",
-                "emotion": "[dizzy]"
+                "emotion": "dizzy",
+                "raw": ""
             }
 
         try:
@@ -59,14 +60,17 @@ class LLMService:
             
             content = response.choices[0].message.content
 
-            # Emotion Tags
-            emotion_match = re.search(r'\[([a-zA-Z_]+).*?\]', content)
-            
             emotion = "neutral"
             text = content
             
+            emotion_match = re.search(r'\[(.*?)\]', content)
+            
             if emotion_match:
-                emotion = emotion_match.group(1).lower()
+                emotion = emotion_match.group(1).strip().lower()
+                
+                if "," in emotion:
+                    emotion = emotion.split(",")[0].strip()
+                    
                 text = content[:emotion_match.start()] + content[emotion_match.end():]
                 text = text.strip()
             
@@ -80,7 +84,8 @@ class LLMService:
             logger.error(f"LLM Generation Error: {e}")
             return {
                 "text": f"I... I lost my train of thought. ({str(e)})",
-                "emotion": "confused"
+                "emotion": "confused",
+                "raw": ""
             }
 
 llm_service = LLMService()
