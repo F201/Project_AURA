@@ -117,13 +117,8 @@ export default function AdminPage() {
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-                    <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm">
-                        <h2 className="text-lg font-black text-slate-800 mb-6 flex items-center gap-2">
-                            <span className="material-icons-round text-primary text-xl">psychology</span>
-                            Personality Engine
-                        </h2>
-                        <PersonalityTuner settings={settings} onChange={handleSettingsChange} />
-                    </div>
+                    <PersonalityTuner />
+                    
                     <div className="flex flex-col gap-8">
                         <ApiKeys />
                         <KnowledgeBase />

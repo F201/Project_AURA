@@ -45,11 +45,10 @@ echo ""
 echo "Environments ready. Starting services..."
 echo ""
 
-# Keep track of PIDs
+# PIDs
 PID_FILE=".aura_pids"
 > "$PID_FILE"
 
-# Make sure all children exit when this script exits
 trap 'echo "Stopping services..."; bash ./stop_aura.sh; exit 0' INT TERM EXIT
 
 # 1. Token Server
@@ -77,7 +76,6 @@ if [ "$(echo "$TTS_TYPE" | tr '[:upper:]' '[:lower:]')" = "qwen" ]; then
     echo "Detect TTS_TYPE=qwen. Verifying 'aura' conda environment..."
     if ! conda env list 2>/dev/null | grep -q "\baura\b"; then
         echo "[WARNING] Conda environment 'aura' not found or conda is not in PATH."
-        echo "Since you have TTS_TYPE=qwen, conda 'aura' is recommended for GPU acceleration."
         echo "Attempting to fall back to starting in the standard venv instead..."
         echo ""
         sleep 3
@@ -110,6 +108,7 @@ sleep 2
 # 3. AI Service
 echo "[3/4] Starting AI Service (port 8001)..."
 (
+    export PYTHONPATH="$DIR"
     cd ai-service || exit
     source venv/bin/activate
     python -m uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload

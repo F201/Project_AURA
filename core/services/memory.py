@@ -1,42 +1,39 @@
-"""
-Memory service using Supabase pgvector for semantic search.
-Replaces the previous Qdrant-based implementation — zero Docker containers needed.
-"""
 from __future__ import annotations
 from typing import List
 import urllib.request
+import os
+from dotenv import load_dotenv
 from supabase import create_client
 
-from app.core.config import settings
 from uuid import UUID
 from datetime import datetime
 
-
-from app.models.database import (Conversation, CreateConversation, Message, CreateMessage, Memory, CreateMemory)
+from core.models.database import (Conversation, CreateConversation, Message, CreateMessage, Memory, CreateMemory)
+from core.services.embeddings import get_embeddings
 
 import logging
 
+load_dotenv()
 logger = logging.getLogger(__name__)
 
-
 def _ollama_is_running(base_url: str) -> bool:
-    """Return True if an Ollama server is reachable at base_url."""
     try:
         urllib.request.urlopen(f"{base_url}/api/tags", timeout=2)
         return True
     except Exception:
         return False
 
-from app.services.embeddings import get_embeddings
-
 class MemoryService:
     def __init__(self):
         self.client = None
         self.embeddings = None
 
+        supabase_url = os.getenv("SUPABASE_URL")
+        supabase_key = os.getenv("SUPABASE_SERVICE_KEY")
+
         # Initialize Supabase client
-        if settings.SUPABASE_URL and settings.SUPABASE_SERVICE_KEY:
-            self.client = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_KEY)
+        if supabase_url and supabase_key:
+            self.client = create_client(supabase_url, supabase_key)
             logger.info("Memory Service connected to Supabase")
         else:
             logger.warning("Supabase credentials not set. Memory service disabled.")
@@ -173,9 +170,6 @@ class MemoryService:
             logger.error(f"Memory Service Add Interaction Error: {error}")
 
     async def batch_add_messages(self, conversation_id: UUID, messages: list[dict]) -> None:
-        """
-        messages list format: [{"role": "user"|"aura", "content": str, "emotion": str}]
-        """
         if not self.client or not messages:
             return
 
@@ -266,7 +260,6 @@ class MemoryService:
             logger.error(f"Memory Service Clear Conversation Error: {error}")           
             
     async def store(self, text: str, metadata: dict = None):
-        """Embed and store a memory in Supabase pgvector."""
         if not self.client or not self.embeddings or not text.strip():
             return
 
@@ -284,14 +277,12 @@ class MemoryService:
             logger.error(f"Memory store error: {e}")
 
     async def search(self, query: str, limit: int = 3) -> list[str]:
-        """Retrieve relevant memories via cosine similarity."""
         if not self.client or not self.embeddings:
             return []
 
         try:
             vector = await self.embeddings.aembed_query(query)
 
-            # Use Supabase RPC for pgvector similarity search
             result = await self._run(lambda: self.client.rpc("match_memories", {
                 "query_embedding": vector,
                 "match_count": limit,
@@ -302,9 +293,7 @@ class MemoryService:
             logger.error(f"Memory search error: {e}")
             return []
 
-
     async def get_long_term_memories(self, identity: str, limit: int = 10) -> str:
-        """Retrieve the last N non-embedded 'user_facts' memories for this identity."""
         if not self.client:
             return ""
 
@@ -321,7 +310,6 @@ class MemoryService:
             if not rows:
                 return ""
 
-            # Reverse to get chronological order in the prompt
             facts_list = [row["content"] for row in reversed(rows)]
             return "\n---\n".join(facts_list)
 
@@ -330,7 +318,6 @@ class MemoryService:
             return ""
 
     async def save_long_term_memory(self, identity: str, facts: str, conversation_id: str | None = None) -> None:
-        """Save a new user_facts entry for the identity."""
         if not self.client or not facts.strip():
             return
         
@@ -348,7 +335,5 @@ class MemoryService:
             logger.info(f"Long-term memory saved for '{identity}'")
         except Exception as error:
             logger.error(f"Memory Service Save Long Term Memory Error: {error}")
-
-
 
 memory_service = MemoryService()

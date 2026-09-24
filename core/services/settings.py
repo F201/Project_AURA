@@ -1,9 +1,11 @@
+import os
 import logging
 import time
 import asyncio
+from dotenv import load_dotenv
 from supabase import create_client, Client
-from app.core.config import settings as app_settings
 
+load_dotenv()
 logger = logging.getLogger(__name__)
 
 _DEFAULTS = {
@@ -33,8 +35,11 @@ _KEY_DEFAULTS = {
 class SettingsService:
     def __init__(self):
         self._client: Client | None = None
-        if app_settings.SUPABASE_URL and app_settings.SUPABASE_SERVICE_KEY:
-            self._client = create_client(app_settings.SUPABASE_URL, app_settings.SUPABASE_SERVICE_KEY)
+        supabase_url = os.getenv("SUPABASE_URL")
+        supabase_key = os.getenv("SUPABASE_SERVICE_KEY")
+        
+        if supabase_url and supabase_key:
+            self._client = create_client(supabase_url, supabase_key)
         
         # Simple cache
         self._cache = {}
@@ -42,8 +47,8 @@ class SettingsService:
             "settings": 0,
             "keys": 0
         }
-        self._TTL = 60 # seconds for settings
-        self._KEY_TTL = 5 # seconds for keys (re-check faster)
+        self._TTL = 60 
+        self._KEY_TTL = 5 
 
     async def get_settings(self) -> dict:
         if not self._client:
@@ -54,7 +59,6 @@ class SettingsService:
             return self._cache["settings"]
 
         try:
-            # Use to_thread to avoid blocking the event loop with synchronous Supabase call
             result = await asyncio.to_thread(
                 lambda: self._client.table("personality_settings").select("*").eq("id", 1).single().execute()
             )
@@ -66,7 +70,7 @@ class SettingsService:
         except Exception as e:
             logger.warning(f"SettingsService.get_settings failed: {e}")
         
-        # Cache fallback to avoid hammering database when empty or failing
+
         settings = dict(_DEFAULTS)
         self._cache["settings"] = settings
         self._cache_expiry["settings"] = now + self._TTL
@@ -103,12 +107,11 @@ class SettingsService:
             if result.data:
                 keys = {**_KEY_DEFAULTS, **result.data}
                 self._cache["keys"] = keys
-                self._cache_expiry["keys"] = now + self._TTL # Consistent with settings TTL
+                self._cache_expiry["keys"] = now + self._TTL
                 return keys
         except Exception as e:
             logger.warning(f"SettingsService.get_api_keys failed: {e}")
-        
-        # Cache fallback to avoid hammering database when empty or failing
+
         keys = dict(_KEY_DEFAULTS)
         self._cache["keys"] = keys
         self._cache_expiry["keys"] = now + self._TTL
@@ -129,6 +132,5 @@ class SettingsService:
         except Exception as e:
             logger.error(f"SettingsService.update_api_keys failed: {e}")
         return dict(_KEY_DEFAULTS)
-
 
 settings_service = SettingsService()

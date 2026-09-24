@@ -3,25 +3,28 @@ import pypdf
 from pptx import Presentation
 from pathlib import Path
 import logging
+from dotenv import load_dotenv
 from supabase import create_client
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from app.core.config import settings
+from core.services.embeddings import get_embeddings
 
+load_dotenv()
 logger = logging.getLogger(__name__)
 
 UPLOAD_DIR = Path("data/uploads")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-
-from app.services.embeddings import get_embeddings
 
 class RAGService:
     def __init__(self):
         self.client = None
         self.embeddings = None
 
-        if settings.SUPABASE_URL and settings.SUPABASE_SERVICE_KEY:
-            self.client = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_KEY)
+        supabase_url = os.getenv("SUPABASE_URL")
+        supabase_key = os.getenv("SUPABASE_SERVICE_KEY")
+
+        if supabase_url and supabase_key:
+            self.client = create_client(supabase_url, supabase_key)
             logger.info("RAG Service connected to Supabase")
         else:
             logger.warning("Supabase credentials not set. RAG service database sync disabled.")
@@ -82,7 +85,6 @@ class RAGService:
         for i in range(0, total_chunks, batch_size):
             batch = chunks[i:i+batch_size]
             try:
-                # Process in batches to massively speed up 1000 page PDFs like textbooks
                 vectors = self.embeddings.embed_documents(batch)
                 
                 data = [
