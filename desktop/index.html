@@ -3,19 +3,50 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AURA Desktop</title>
+    <title></title>
     <style>
-      * { margin: 0; padding: 0; box-sizing: border-box; }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+        user-select: none;
+      }
       html, body, #root {
         width: 100vw;
         height: 100vh;
         background: transparent;
         overflow: hidden;
+        font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+        color: #f8fafc;
+      }
+      input, textarea {
+        user-select: text;
+      }
+      ::-webkit-scrollbar {
+        width: 5px;
+      }
+      ::-webkit-scrollbar-track {
+        background: rgba(255, 255, 255, 0.04);
+      }
+      ::-webkit-scrollbar-thumb {
+        background: rgba(129, 140, 248, 0.45);
+        border-radius: 99px;
+      }
+      @keyframes floatUp {
+        0% { transform: translateY(0px) scale(0.75) rotate(0deg); opacity: 0; }
+        18% { opacity: 0.95; }
+        100% { transform: translateY(-110px) scale(1.15) rotate(22deg); opacity: 0; }
+      }
+      @keyframes pulseGlow {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.55); }
+        50% { box-shadow: 0 0 0 7px rgba(99, 102, 241, 0); }
       }
     </style>
   </head>
   <body>
     <div id="root"></div>
+    <!-- Cubism 4 Core runtime for Live2D avatar -->
+    <script src="./live2dcubismcore.min.js"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

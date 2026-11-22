@@ -118,3 +118,13 @@ brain/
 *.pptx
 voice-agent/token.txt
 /.claude
+
+# AURA Desktop Live Companion runtime artifacts
+.venv/
+desktop-agent/.venv/
+desktop-agent/data/
+*.db
+desktop/dist-electron/
+desktop/public/models/3d/*.vrm
+desktop/public/models/3d/*.glb
+desktop/public/models/3d/*.pmx
