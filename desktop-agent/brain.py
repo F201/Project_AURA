@@ -143,8 +143,7 @@ class AuraDesktopBrain:
     ) -> AsyncGenerator[Dict[str, Any], None]:
         if not settings.openrouter_api_key:
             yield {"type": "expression", "expressions": ["SadLock"], "duration": 4.0}
-            msg = "My OpenRouter API key is missing from your dot env file!"
-            yield {"type": "clause", "text": msg, "emotions": ["SadLock"]}
+            msg = "Set OPENROUTER_API_KEY in .env to enable conversation."
             yield {"type": "done", "full_text": msg, "primary_emotion": "SadLock"}
             return
 

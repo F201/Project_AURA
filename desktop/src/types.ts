@@ -19,7 +19,7 @@ export interface CompanionState {
   typing_watcher_enabled: boolean
   privacy_paused: boolean
   privacy_reason: string
-  tts_backend: 'qwen3' | 'edge' | 'loading' | 'off'
+  tts_backend: 'qwen3' | 'remote' | 'edge' | 'loading' | 'off'
   tts_error: string
   tts_ready: boolean
   stt_ready: boolean

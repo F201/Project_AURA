@@ -482,18 +482,20 @@ export function CompanionDrawer({
             >
               <div>
                 <strong>TTS Engine:</strong>{' '}
-                <span style={{ color: state.tts_backend === 'qwen3' ? '#86efac' : '#fde68a' }}>
+                <span style={{ color: ['qwen3', 'remote'].includes(state.tts_backend) ? '#86efac' : '#fde68a' }}>
                   {state.tts_backend === 'qwen3'
                     ? 'Faster-Qwen3-TTS Voice Clone (CUDA)'
-                    : state.tts_backend === 'loading'
-                      ? 'Warming up CUDA Graphs…'
-                      : 'Edge-TTS Fallback (0 VRAM)'}
+                    : state.tts_backend === 'remote'
+                      ? 'Qwen3-TTS Voice Clone (phone)'
+                      : state.tts_backend === 'loading'
+                        ? 'Starting TTS…'
+                        : state.tts_backend === 'off' ? 'Unavailable' : 'Edge-TTS Fallback (0 VRAM)'}
                 </span>
               </div>
               {state.tts_error && (
                 <div style={{ fontSize: 10.5, color: '#fca5a5' }}>{state.tts_error}</div>
               )}
-              {state.tts_backend !== 'qwen3' && state.tts_backend !== 'loading' && (
+              {(state.tts_backend === 'edge' || state.tts_backend === 'off') && (
                 <button
                   onClick={() => fetch(`${backendHttp}/api/tts/reload`, { method: 'POST' })}
                   style={{ ...btnPrimary, alignSelf: 'flex-start', marginTop: 2 }}

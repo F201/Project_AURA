@@ -12,7 +12,7 @@ export default defineConfig({
     emptyOutDir: true,
   },
   optimizeDeps: {
-    exclude: ['pixi-live2d-display'],
+    include: ['pixi-live2d-display/cubism4'],
   },
   assetsInclude: ['**/*.wasm', '**/*.moc3'],
   test: {

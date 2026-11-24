@@ -103,6 +103,7 @@ class Settings:
     tts_chunk_size: int = field(default_factory=lambda: int(os.getenv("TTS_CHUNK_SIZE", "6")))
     tts_language: str = field(default_factory=lambda: os.getenv("TTS_LANGUAGE", "English"))
     tts_warmup: bool = field(default_factory=lambda: os.getenv("TTS_WARMUP", "true").lower() == "true")
+    remote_tts_url: str = field(default_factory=lambda: os.getenv("DESKTOP_REMOTE_TTS_URL", "").strip().rstrip("/"))
 
     stt_model: str = field(default_factory=lambda: os.getenv("STT_MODEL", "base"))
     stt_language: str = field(default_factory=lambda: os.getenv("STT_LANGUAGE", "en"))
@@ -136,7 +137,7 @@ class RuntimeState:
     typing_watcher_enabled: bool = True
     privacy_paused: bool = False
     privacy_reason: str = ""
-    tts_backend: str = "loading"  # "qwen3" | "edge" | "loading" | "off"
+    tts_backend: str = "loading"  # "qwen3" | "remote" | "edge" | "loading" | "off"
     tts_error: str = ""
     tts_ready: bool = False
     stt_ready: bool = False

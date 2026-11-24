@@ -21,6 +21,7 @@ import time
 from pathlib import Path
 from typing import AsyncGenerator, List, Optional
 
+import httpx
 import numpy as np
 
 from config import VOICE_AGENT_DIR, runtime, settings
@@ -95,6 +96,17 @@ class StreamingTTSEngine:
             runtime.tts_backend = "edge"
             runtime.tts_ready = True
             return False
+
+        if settings.remote_tts_url:
+            try:
+                httpx.get(f"{settings.remote_tts_url}/health", timeout=4.0, trust_env=False).raise_for_status()
+            except httpx.HTTPError as exc:
+                self._set_remote_error(exc)
+                return False
+            runtime.tts_backend = "remote"
+            runtime.tts_error = ""
+            runtime.tts_ready = True
+            return True
 
         with self._model_lock:
             if self._model is not None:
@@ -219,6 +231,11 @@ class StreamingTTSEngine:
         if abort_event.is_set():
             return
 
+        if settings.remote_tts_url and not runtime.game_mode:
+            async for chunk in self._stream_remote_pcm(cleaned, abort_event):
+                yield chunk
+            return
+
         if self._model is None and runtime.tts_backend == "loading" and not runtime.game_mode:
             for _ in range(360):
                 if abort_event.is_set() or self._model is not None or runtime.tts_backend != "loading":
@@ -307,6 +324,49 @@ class StreamingTTSEngine:
                 yield chunk
         else:
             logger.warning("Skipping Edge-TTS fallback (Game Mode is OFF); Qwen3-TTS is not loaded.")
+
+    def _set_remote_error(self, exc: Exception) -> None:
+        logger.warning("Phone Qwen3-TTS failed: %s", exc)
+        runtime.tts_backend = "off"
+        runtime.tts_ready = False
+        runtime.tts_error = "Phone Qwen3-TTS unavailable. Check the phone service and SSH tunnel."
+
+    async def _stream_remote_pcm(
+        self, text: str, abort_event: asyncio.Event,
+    ) -> AsyncGenerator[tuple[bytes, int], None]:
+        """Deliver a whole clause so slow phone inference cannot break up words."""
+        language = "ja" if detect_language(text, runtime.tts_language) == "Japanese" else "en"
+        headers = {"Content-Type": "text/plain; charset=utf-8", "X-TTS-Language": language}
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(45.0, connect=4.0), trust_env=False) as client:
+                request = asyncio.create_task(client.post(
+                    f"{settings.remote_tts_url}/speech", content=text.encode("utf-8"), headers=headers,
+                ))
+                interrupt = asyncio.create_task(abort_event.wait())
+                try:
+                    await asyncio.wait((request, interrupt), return_when=asyncio.FIRST_COMPLETED)
+                    if abort_event.is_set():
+                        return
+                    response = request.result().raise_for_status()
+                finally:
+                    request.cancel()
+                    interrupt.cancel()
+                    await asyncio.gather(request, interrupt, return_exceptions=True)
+
+            if response.headers.get("X-Sample-Rate") != str(SAMPLE_RATE):
+                raise ValueError("Invalid phone TTS sample rate")
+            pcm = response.content
+            if not pcm or len(pcm) % 2:
+                raise ValueError("Incomplete PCM from phone TTS")
+            if abort_event.is_set():
+                return
+            runtime.tts_backend = "remote"
+            runtime.tts_error = ""
+            runtime.tts_ready = True
+            yield pcm, SAMPLE_RATE
+        except (httpx.HTTPError, ValueError) as exc:
+            if not abort_event.is_set():
+                self._set_remote_error(exc)
 
     async def _stream_edge_tts_pcm(
         self, text: str, abort_event: asyncio.Event

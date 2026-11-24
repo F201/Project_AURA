@@ -70,7 +70,7 @@ class CompanionHub:
                 "voices": tts_engine.list_voice_files(),
             },
         )
-        if not self._greeted:
+        if settings.openrouter_api_key and not self._greeted:
             self._greeted = True
             asyncio.create_task(self._startup_greeting())
 
@@ -142,6 +142,8 @@ class CompanionHub:
         extra_context: Optional[str] = None,
         persist_user: bool = True,
     ) -> None:
+        if not settings.openrouter_api_key and source != "text":
+            return
         self._abort_event.set()
         async with self._turn_lock:
             self._turn_seq += 1
@@ -255,7 +257,7 @@ class CompanionHub:
             finally:
                 await clause_queue.put(None)
                 try:
-                    await asyncio.wait_for(tts_task, timeout=22.0)
+                    await asyncio.wait_for(tts_task, timeout=120.0 if settings.remote_tts_url else 22.0)
                 except asyncio.TimeoutError:
                     abort.set()
                     tts_task.cancel()
