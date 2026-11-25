@@ -123,6 +123,12 @@ voice-agent/token.txt
 .venv/
 desktop-agent/.venv/
 desktop-agent/data/
+mobile/.gradle/
+mobile/.idea/
+mobile/local.properties
+mobile/build/
+mobile/app/build/
+mobile/app/.cxx/
 *.db
 desktop/dist-electron/
 desktop/public/models/3d/*.vrm

@@ -1,4 +1,27 @@
-# AURA desktop and Samsung TTS handoff
+# AURA desktop and Samsung handoff
+
+## Standalone Android app
+
+The [Android setup and build guide](../mobile/README.md) covers AURA 1.1, installed and tested on the Galaxy A56 (SM-A566B) on November 25, 2026. It runs Live2D and the cloned Qwen voice on the phone. Chat and photo understanding use the model configured in OpenRouter Settings. The standalone app needs neither the Windows agent nor the Termux service.
+
+    .\mobile\build-mobile.ps1 -Abis arm64-v8a -ArmArch 'armv8.2-a+dotprod+fp16+i8mm'
+    adb install -r mobile/app/build/outputs/apk/debug/app-debug.apk
+
+- **Talk** starts hands-free turn taking. The Android recognizer transcribes the utterance, AURA streams the reply, and the mic reopens after playback. Indonesian dictation is selectable in Settings. Spoken replies are in English or Japanese. **Interrupt** stops the reply and returns to listening.
+- **Camera** opens an in-app CameraX preview. AURA sends the latest preview frame with each turn while the camera is on. The preview supports front and rear lenses and pinch zoom. The camera and mic close when the app leaves the foreground.
+- The Live2D avatar fills the display. Pinch to zoom Hu Tao. Subtitles appear as phrases start playback. Controls auto-hide during Talk by default and a double tap reveals them. The LLM's `set_avatar_expression` tool controls the avatar and can replay the expression when speech starts.
+- **Saved memories** uses the desktop `remember_fact` contract and SQLite `memories` and `profile` tables. The app recalls saved facts after a restart and shows them separately from chat history. **Import desktop** merges facts and can fill in the desktop profile name from a SQLite backup. The importer leaves messages and reminders on their original device.
+
+### Android hardware verification and latency
+
+- The user heard the cloned voice through the phone speaker and completed two hands-free turns, including a turn using an actual camera frame. Android logs showed playback routed to the built-in speaker and the mic reopening after each reply. The original build used the separate Assistant audio stream, which was at 2/15 on the test phone. The standalone app now uses media volume and surfaces mute or audio-focus failures.
+- On-device instrumentation verified rear-to-front switching, front-camera zoom, merged desktop-format memory, and an OpenRouter model saving a test fact and recalling it after the SQLite connection was reopened. The live tool-call test also verified an English reply to an Indonesian prompt about a synthetic image and the resulting Live2D expression.
+- In the earlier standalone benchmark, the same speaker embedding and CPU models produced a 3.28-second clip. The warm run delivered first decoded PCM in 0.64 seconds and started playback in 10.68 seconds, with zero underruns at 3.85 codec frames/s sustained. Later hands-free checks on the original Talk build took about 24 seconds from transcription acceptance to playback and about 25 seconds for a camera turn. Those measurements predate the shorter live answers and optional-reasoning change.
+- For a fresh timing run, compare the `AuraTalk` timestamps for utterance acceptance and first reply text with the `AuraVoice` timestamp for media playback. Keep the voice models and embedding fixed, test both short and long replies, and report the audible start separately from first decoded PCM. The sub-second gapless target remains open.
+
+    adb logcat -d -s AuraTalk AuraVoice AuraAvatar
+
+## Windows desktop and Termux TTS service
 
 The desktop overlay, FastAPI agent, and Whisper speech recognition run on Windows. The Samsung ARM64 service generates 24 kHz mono PCM with Qwen3-TTS 0.6B Base. It uses the checked-in AURA speaker embedding, the `Q4_K_M` talker, and the `Q8_0` codec. The service listens on loopback and Windows reaches it over an SSH port forward.
 

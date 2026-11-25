@@ -49,10 +49,11 @@ interface Props {
   onScaleDelta: (delta: number) => void
   onHoverAvatar: (hovering: boolean) => void
   onTouch: (kind: 'headpat' | 'poke' | 'shake') => void
+  onModelReady?: (readParameter: (name: string) => number) => void
 }
 
 export const Live2DRenderer = forwardRef<AvatarHandle, Props>(function Live2DRenderer(
-  { width, height, avatarScale, onScaleDelta, onHoverAvatar, onTouch },
+  { width, height, avatarScale, onScaleDelta, onHoverAvatar, onTouch, onModelReady },
   ref
 ) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -154,6 +155,11 @@ export const Live2DRenderer = forwardRef<AvatarHandle, Props>(function Live2DRen
         idleRef.current = idle
         trackingRef.current = tracking
         exprRef.current = expr
+        const inspectedParameters = new Map<string, number>()
+        onModelReady?.(name => {
+          if (!inspectedParameters.has(name)) inspectedParameters.set(name, 0)
+          return inspectedParameters.get(name) ?? 0
+        })
 
         let lastMs = performance.now()
         core.update = function () {
@@ -165,6 +171,12 @@ export const Live2DRenderer = forwardRef<AvatarHandle, Props>(function Live2DRen
           tracking.update(elapsed, mouthRef.current)
           expr.update(elapsed)
           bus.flush(core)
+          // Pixi restores the saved parameters after drawing this frame.
+          if (inspectedParameters.size > 0) {
+            for (const name of inspectedParameters.keys()) {
+              inspectedParameters.set(name, core.getParameterValueById(name))
+            }
+          }
           origCoreUpdate()
         }
       })
