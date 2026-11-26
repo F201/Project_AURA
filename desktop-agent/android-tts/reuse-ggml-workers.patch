@@ -1,0 +1,34 @@
+diff --git a/src/ggml-cpu/ggml-cpu.cpp b/src/ggml-cpu/ggml-cpu.cpp
+index 128883b..0f8c5f5 100644
+--- a/src/ggml-cpu/ggml-cpu.cpp
++++ b/src/ggml-cpu/ggml-cpu.cpp
+@@ -9,0 +10 @@
++#include <cstdlib>
+@@ -101,0 +103,2 @@ struct ggml_backend_cpu_context {
++    ggml_threadpool_t   owned_threadpool = nullptr;
++    int                 owned_threads = 0;
+@@ -119,0 +123,3 @@ static void ggml_backend_cpu_free(ggml_backend_t backend) {
++    if (cpu_ctx->owned_threadpool) {
++        ggml_threadpool_free(cpu_ctx->owned_threadpool);
++    }
+@@ -169,0 +176,17 @@ static enum ggml_status ggml_backend_cpu_graph_plan_compute(ggml_backend_t backe
++static ggml_threadpool_t ggml_backend_cpu_graph_threadpool(struct ggml_backend_cpu_context * cpu_ctx) {
++    const char * reuse = std::getenv("GGML_CPU_REUSE_WORKERS");
++    if (cpu_ctx->threadpool || !reuse || reuse[0] != '1' || cpu_ctx->n_threads <= 1) {
++        return cpu_ctx->threadpool;
++    }
++    if (cpu_ctx->owned_threads != cpu_ctx->n_threads || !cpu_ctx->owned_threadpool) {
++        if (cpu_ctx->owned_threadpool) {
++            ggml_threadpool_free(cpu_ctx->owned_threadpool);
++        }
++        auto params = ggml_threadpool_params_default(cpu_ctx->n_threads);
++        params.poll = 0;
++        cpu_ctx->owned_threadpool = ggml_threadpool_new(&params);
++        cpu_ctx->owned_threads = cpu_ctx->n_threads;
++    }
++    return cpu_ctx->owned_threadpool;
++}
++
+@@ -173 +196 @@ static enum ggml_status ggml_backend_cpu_graph_compute(ggml_backend_t backend, s
+-    struct ggml_cplan cplan = ggml_graph_plan(cgraph, cpu_ctx->n_threads, cpu_ctx->threadpool);
++    struct ggml_cplan cplan = ggml_graph_plan(cgraph, cpu_ctx->n_threads, ggml_backend_cpu_graph_threadpool(cpu_ctx));

@@ -1,0 +1,33 @@
+# AURA Desktop Companion Backend Dependencies
+# Install PyTorch CUDA first on NVIDIA GPUs:
+#   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+websockets>=13.0
+httpx>=0.28.0
+pydantic>=2.9.0
+pydantic-settings>=2.6.0
+python-dotenv>=1.0.1
+python-multipart>=0.0.17
+
+# Local CPU STT & Audio I/O (0 VRAM)
+faster-whisper>=1.1.0
+sounddevice>=0.5.1
+soundfile>=0.12.1
+numpy>=1.26.0
+av>=13.0.0
+
+# Local Streaming TTS (Faster-Qwen3-TTS on GPU) + Game-Mode 0-VRAM fallback
+qwen-tts
+edge-tts>=6.1.12
+
+# Vision & Desktop Awareness
+mss>=9.0.2
+Pillow>=11.0.0
+pynput>=1.7.7
+psutil>=6.1.0
+pywin32>=308; sys_platform == "win32"
+
+# Desktop Agent Web Search
+duckduckgo-search>=7.0.0

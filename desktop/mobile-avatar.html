@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AURA avatar</title>
+    <style>
+      html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; touch-action: none; }
+      body { background: #211618 radial-gradient(ellipse at 52% 39%, #633535 0%, #3d2326 44%, #211618 78%); }
+      #root > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+    </style>
+    <script src="./live2dcubismcore.min.js"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/mobile-avatar.tsx"></script>
+  </body>
+</html>
